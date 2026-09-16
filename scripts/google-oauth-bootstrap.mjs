@@ -51,7 +51,7 @@ const server = createServer(async (request, response) => {
     const tokens = await tokenResponse.json();
     if (!tokenResponse.ok || !tokens.refresh_token) throw new Error("Google did not return a refresh token.");
     await writeFile(".env.local", [
-      `GOOGLE_SHEETS_SPREADSHEET_ID=1pDvb5W1FajPdE4paro-AzJDfr9mI2lCgNad8GXH34EM`,
+      `GOOGLE_SHEETS_SPREADSHEET_ID=${process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? "your-google-sheet-id"}`,
       `GOOGLE_SHEETS_TAB_NAME=IT support request`,
       `GOOGLE_SHEETS_CLIENT_ID=${client.client_id}`,
       `GOOGLE_SHEETS_CLIENT_SECRET=${client.client_secret}`,
