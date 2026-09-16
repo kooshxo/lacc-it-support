@@ -1,0 +1,33 @@
+name: Open review PR
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    name: Open pull request for review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open a pull request when one does not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          existing=$(gh pr list --repo "$REPOSITORY" --head "$HEAD_BRANCH" --base main --state open --json number --jq 'length')
+          if [ "$existing" = "0" ]; then
+            gh pr create \
+              --repo "$REPOSITORY" \
+              --base main \
+              --head "$HEAD_BRANCH" \
+              --title "Review: $HEAD_BRANCH" \
+              --body "This PR was opened automatically after a branch push. Please review the changes and preview deployment before merging into main."
+          else
+            echo "An open review PR already exists for $HEAD_BRANCH."
+          fi

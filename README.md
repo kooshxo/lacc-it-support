@@ -117,3 +117,5 @@ Saving Resolved writes K=`Yes`, O=`YYYY-MM-DD`, P=`TRUE`, R=`<logged-in staff na
 ### Security and collaboration model
 
 Production access is Google OAuth with the IT allowlist. Secrets stay in Vercel environment variables. The GitHub `main` branch is intended to be protected with pull-request review and status checks; collaborators should work on branches and open PRs for review. Vercel is connected to this repository so approved pushes can deploy through the project’s normal integration.
+
+On the free plan, GitHub cannot enforce branch protection on this private personal repository. The repository therefore includes `.github/workflows/auto-pr.yml`: every push to a non-`main` branch opens one review PR automatically (and later pushes update that same PR). Production remains the `main` branch; review and merge are still manual. A GitHub Team/Enterprise organization can replace this workflow with enforced branch protection and required approvals.
