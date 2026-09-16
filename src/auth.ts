@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 const allowedStaff = new Set(
-  (process.env.IT_STAFF_EMAILS ?? "duanesalt9@gmail.com,dominic.parrish10@gmail.com")
+  (process.env.IT_STAFF_EMAILS ?? "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),

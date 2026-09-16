@@ -26,7 +26,7 @@ async function accessToken() {
   return payload.access_token;
 }
 
-const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "IT support request";
+const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
 
 async function request(path: string, init: RequestInit = {}) {
