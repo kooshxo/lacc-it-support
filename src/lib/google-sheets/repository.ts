@@ -8,14 +8,13 @@ import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, ty
 
 const field = (row: unknown[], index: number) => String(row[index] ?? "").trim();
 const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
-const lastWednesday = (now = new Date()) => { const date = new Date(now); date.setHours(0, 0, 0, 0); const days = (date.getDay() - 3 + 7) % 7 || 7; date.setDate(date.getDate() - days); return date; };
 const statusFor = (solved: string, solvedDate: string, completion: string, staff: string): TicketStatus => isCompletionValue(solved) || isValidSourceDate(solvedDate) || isValidSourceDate(completion) || hasRealSourceValue(staff) ? "RESOLVED" : "NEW";
 
 type IntakeTicket = Ticket & { sourceRow: number };
 
 function ticketFrom(row: unknown[], sourceRow: number): IntakeTicket | null {
   const created = asDate(field(row, 0));
-  if (!created || created < lastWednesday()) return null;
+  if (!created) return null;
   const requesterEmail = field(row, 4).toLowerCase();
   const detail = field(row, 7);
   const needs = field(row, 8);
