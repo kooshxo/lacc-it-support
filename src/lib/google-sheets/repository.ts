@@ -128,7 +128,7 @@ export class GoogleSheetTicketRepository implements TicketRepository {
 
   async healthCheck(): Promise<HealthCheck> {
     const started = Date.now();
-    try { await this.tickets(); return { status: "healthy", backend: "google", workbookReadable: true, workbookWritable: true, schemaVersion: "Google form intake", missingTables: [], problems: [], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
+    try { await this.tickets(); return { status: "healthy", backend: "google", workbookReadable: true, workbookWritable: null, schemaVersion: "Google form intake", missingTables: [], problems: ["Read access succeeded. Write access is confirmed by ticket updates; the health check does not modify the live spreadsheet."], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
     catch (error) { return { status: "unconfigured", backend: "google", workbookReadable: false, workbookWritable: false, schemaVersion: null, missingTables: [], problems: [error instanceof Error ? error.message : "Google Sheets check failed."], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
   }
 }

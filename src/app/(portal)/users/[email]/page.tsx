@@ -5,17 +5,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { requireAgent } from "@/lib/authz";
 import { getRepository } from "@/lib/excel";
 import { isTicketResolved } from "@/lib/domain/resolution";
+import { isValidRequesterEmail, normalizeRequesterEmail } from "@/lib/domain/email";
 
 const submittedDate = (value: string) => new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
 export default async function UserProfilePage({ params }: { params: Promise<{ email: string }> }) {
   await requireAgent();
   const { email: routeEmail } = await params;
-  const email = routeEmail.trim().toLowerCase();
-  if (!email.includes("@")) notFound();
+  const email = normalizeRequesterEmail(routeEmail);
+  if (!isValidRequesterEmail(email)) notFound();
 
   const history = (await getRepository().listTickets())
-    .filter((ticket) => ticket.requesterEmail.trim().toLowerCase() === email)
+    .filter((ticket) => normalizeRequesterEmail(ticket.requesterEmail) === email)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   if (!history.length) notFound();
 

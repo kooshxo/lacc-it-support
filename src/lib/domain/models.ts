@@ -100,7 +100,7 @@ export interface HealthCheck {
   status: "healthy" | "degraded" | "unconfigured";
   backend: "graph" | "fixture" | "google";
   workbookReadable: boolean;
-  workbookWritable: boolean;
+  workbookWritable: boolean | null;
   schemaVersion: string | null;
   missingTables: string[];
   problems: string[];
