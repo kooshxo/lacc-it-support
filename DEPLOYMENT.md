@@ -16,12 +16,16 @@ DEMO_STAFF_NAME=IT Staff
 GOOGLE_SHEETS_SPREADSHEET_ID=your-google-sheet-id
 GOOGLE_SHEETS_TAB_NAME=IT support request
 GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=<secret>
+GOOGLE_CLOUD_PROJECT_NUMBER=<google-cloud-project-number>
+GOOGLE_WORKLOAD_IDENTITY_POOL_ID=<workload-identity-pool-id>
+GOOGLE_WORKLOAD_IDENTITY_PROVIDER_ID=<workload-identity-provider-id>
 ```
 
 Keep `AUTH_BYPASS=false` in production. Configure `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `AUTH_SECRET`, and set `IT_STAFF_EMAILS` to the explicit staff allowlist. The portal rejects Google accounts not on that list.
 
-For the Sheets connection, enable the Google Sheets API in the Cloud project, create a service account, and share only the support-response spreadsheet with its email as an Editor. The app reads intake rows and writes resolution fields, so it needs edit access to that workbook. Store the service account email and private key in Vercel as `GOOGLE_SERVICE_ACCOUNT_EMAIL` and the encrypted `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`; encode private-key line breaks as `\\n` if entering it as one line. Do not grant the service account project-wide roles. Service-account settings take precedence over the legacy OAuth refresh-token settings.
+For the Sheets connection, enable the Google Sheets API, IAM Service Account Credentials API, and Security Token Service API in the Cloud project. Create or reuse a service account and share only the support-response spreadsheet with its email as an Editor. Configure a Google Workload Identity Federation OIDC provider for the Vercel team issuer, then grant only the production LACC project identity permission to impersonate that service account. Set the project number, pool ID, provider ID, and service-account email in Vercel Production. The resulting access tokens are short-lived; no private key is stored in Vercel. Keep the service account free of project-wide data roles. A service-account private key can still be used in environments that permit keys, and it takes precedence over Workload Identity Federation. Service-account authentication takes precedence over the legacy OAuth refresh-token settings.
+
+If a Sheets write is rejected or the connection fails, the ticket site keeps that staff member's latest update per ticket in the browser's local outbox and displays the Sheets error and pending state. The next save sends the queued updates with the new ticket update in one batch. The queue is per browser profile, remains there until a batch succeeds, and is removed if browser site data is cleared; it is not a cross-device backup.
 
 The portal reads the `IT support request` tab directly. It displays only rows dated on or after the most recent Wednesday and leaves historical rows untouched. Completing a ticket writes `Yes` to K, the completion timestamp to P, and the typed staff name to R on that request's exact source row.
 

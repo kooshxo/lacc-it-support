@@ -1,8 +1,8 @@
 import "server-only";
 import type { AttachmentRecord, Employee, HealthCheck, Priority, Ticket, TicketDetail, TicketEvent, TicketMessage, TicketStatus } from "@/lib/domain/models";
 import { canManageTickets, canReadTicket } from "@/lib/domain/policy";
-import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
-import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRow } from "./client";
+import type { MessageCreateInput, PendingTicketWrite, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
+import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRows } from "./client";
 import { hasRealSourceValue, isCompletionValue, isValidSourceDate } from "@/lib/domain/resolution";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 
@@ -93,17 +93,38 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     if (!ticket) throw new NotFoundError();
     if (ticket.version !== input.expectedVersion) throw new ConflictError();
     if (input.status === "NEW") {
-      await updateGoogleSheetIntakeRow(ticket.sourceRow, [["K", "FALSE"], ["M", ""], ["O", ""], ["P", "FALSE"], ["R", "TBD"]]);
+      await this.updateTickets([{ operationUid: input.operationUid, ticketUid: ticket.ticketUid, ticketNumber: ticket.ticketNumber, expectedVersion: input.expectedVersion, status: "NEW", completedBy: actor.displayName, resolutionNotes: "", completedAt: new Date().toISOString() }], actor);
       return { ...ticket, status: "NEW", assigneeUid: "", historicalStaff: "TBD", resolutionNotes: "", sourceSolvedValue: "FALSE", sourceSolvedDate: "", completionTimestamp: "FALSE", updatedAt: new Date().toISOString(), resolvedAt: "" };
     }
     if (input.status !== "RESOLVED" && input.status !== "CLOSED") return ticket;
     const completedAt = new Date().toISOString();
     const staff = input.completedBy || actor.displayName;
     const solvedDate = completedAt.slice(0, 10);
-    const updates: Array<[string, string]> = [["K", "Yes"], ["O", solvedDate], ["P", "TRUE"], ["R", staff]];
-    if (input.resolutionNotes) updates.push(["M", input.resolutionNotes]);
-    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
+    await this.updateTickets([{ operationUid: input.operationUid, ticketUid: ticket.ticketUid, ticketNumber: ticket.ticketNumber, expectedVersion: input.expectedVersion, status: input.status, completedBy: staff, resolutionNotes: input.resolutionNotes, completedAt }], actor);
     return { ...ticket, status: "RESOLVED", assigneeUid: "", historicalStaff: staff, resolutionNotes: input.resolutionNotes || ticket.resolutionNotes, sourceSolvedValue: "Yes", sourceSolvedDate: solvedDate, completionTimestamp: "TRUE", updatedAt: completedAt, resolvedAt: completedAt };
+  }
+
+  async updateTickets(writes: PendingTicketWrite[], actor: Employee): Promise<void> {
+    if (!canManageTickets(actor)) throw new AuthorizationError();
+    if (!writes.length) return;
+    const tickets = await this.tickets();
+    const byUid = new Map(tickets.map((ticket) => [ticket.ticketUid, ticket]));
+    const latestByTicket = new Map<string, PendingTicketWrite>();
+    for (const write of writes) {
+      const ticket = byUid.get(write.ticketUid);
+      if (!ticket || ticket.ticketNumber !== write.ticketNumber) throw new NotFoundError();
+      if (ticket.version !== write.expectedVersion) throw new ConflictError();
+      latestByTicket.set(write.ticketUid, write);
+    }
+    await updateGoogleSheetIntakeRows([...latestByTicket.values()].map((write) => {
+      const ticket = byUid.get(write.ticketUid)!;
+      if (write.status === "NEW") {
+        return { row: ticket.sourceRow, updates: [["K", "FALSE"], ["M", ""], ["O", ""], ["P", "FALSE"], ["R", "TBD"]] as Array<[string, string]> };
+      }
+      const updates: Array<[string, string]> = [["K", "Yes"], ["O", write.completedAt.slice(0, 10)], ["P", "TRUE"], ["R", write.completedBy]];
+      if (write.resolutionNotes !== undefined) updates.push(["M", write.resolutionNotes]);
+      return { row: ticket.sourceRow, updates };
+    }));
   }
 
   async healthCheck(): Promise<HealthCheck> {

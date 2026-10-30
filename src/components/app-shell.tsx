@@ -5,6 +5,7 @@ import { BrandMark } from "./brand-mark";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { MobileNav } from "./mobile-nav";
+import { LocalWriteOutboxNotice } from "./local-write-outbox-notice";
 
 export function AppShell({ employee, children }: { employee: Employee; children: React.ReactNode }) {
   const elevated = employee.role !== "EMPLOYEE";
@@ -14,6 +15,7 @@ export function AppShell({ employee, children }: { employee: Employee; children:
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6"><Link href="/dashboard"><BrandMark /></Link><div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-sm font-medium">{employee.displayName}</p><p className="text-xs text-muted-foreground">{employee.role.replace("_", " ")}</p></div><Button asChild variant="ghost" size="icon" aria-label="Sign out"><Link href="/api/auth/signout"><LogOut className="size-4" /></Link></Button></div></div>
       </header>
+      <LocalWriteOutboxNotice />
       <div className="mx-auto grid max-w-7xl md:grid-cols-[220px_1fr]">
         <aside className="hidden min-h-[calc(100vh-4rem)] border-r bg-background p-4 md:block">
           <nav className="space-y-1" aria-label="Primary navigation">

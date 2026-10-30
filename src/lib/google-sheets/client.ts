@@ -1,5 +1,6 @@
 import "server-only";
 import { createSign } from "node:crypto";
+import { headers } from "next/headers";
 
 import { WorkbookUnavailableError } from "@/lib/excel/repository";
 
@@ -68,9 +69,50 @@ async function oauthRefreshTokenAccessToken() {
   return payload.access_token;
 }
 
+async function workloadIdentityAccessToken() {
+  const serviceAccountEmail = required("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const projectNumber = required("GOOGLE_CLOUD_PROJECT_NUMBER");
+  const poolId = required("GOOGLE_WORKLOAD_IDENTITY_POOL_ID");
+  const providerId = required("GOOGLE_WORKLOAD_IDENTITY_PROVIDER_ID");
+  const audience = `//iam.googleapis.com/projects/${projectNumber}/locations/global/workloadIdentityPools/${poolId}/providers/${providerId}`;
+  const subjectToken = (await headers()).get("x-vercel-oidc-token") || process.env.VERCEL_OIDC_TOKEN;
+  if (!subjectToken) throw new WorkbookUnavailableError("Vercel did not provide an OIDC token for Google Workload Identity Federation.");
+
+  const exchangeResponse = await fetch("https://sts.googleapis.com/v1/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      audience,
+      requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      subject_token: subjectToken,
+      scope: "https://www.googleapis.com/auth/cloud-platform",
+    }),
+    cache: "no-store",
+  });
+  const exchangePayload = await exchangeResponse.json().catch(() => null) as { access_token?: string; error?: string } | null;
+  if (!exchangeResponse.ok || !exchangePayload?.access_token) {
+    throw new WorkbookUnavailableError(`Google Workload Identity Federation could not exchange the Vercel token (${exchangePayload?.error ?? exchangeResponse.status}).`);
+  }
+
+  const impersonationResponse = await fetch(`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(serviceAccountEmail)}:generateAccessToken`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${exchangePayload.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ scope: ["https://www.googleapis.com/auth/spreadsheets"], lifetime: "3600s" }),
+    cache: "no-store",
+  });
+  const impersonationPayload = await impersonationResponse.json().catch(() => null) as { accessToken?: string; error?: { status?: string } } | null;
+  if (!impersonationResponse.ok || !impersonationPayload?.accessToken) {
+    throw new WorkbookUnavailableError(`Google could not issue a short-lived Sheets token for the service account (${impersonationPayload?.error?.status ?? impersonationResponse.status}).`);
+  }
+  return impersonationPayload.accessToken;
+}
+
 async function accessToken() {
-  const hasServiceAccountSettings = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
-  if (hasServiceAccountSettings) return serviceAccountAccessToken();
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) return serviceAccountAccessToken();
+  const hasWorkloadIdentitySettings = Boolean(process.env.GOOGLE_CLOUD_PROJECT_NUMBER || process.env.GOOGLE_WORKLOAD_IDENTITY_POOL_ID || process.env.GOOGLE_WORKLOAD_IDENTITY_PROVIDER_ID);
+  if (hasWorkloadIdentitySettings) return workloadIdentityAccessToken();
   return oauthRefreshTokenAccessToken();
 }
 
@@ -83,7 +125,14 @@ async function request(path: string, init: RequestInit = {}) {
     headers: { Authorization: `Bearer ${await accessToken()}`, ...(init.headers ?? {}) },
     cache: "no-store",
   });
-  if (!response.ok) throw new WorkbookUnavailableError(`Google Sheets request failed (${response.status}).`);
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { error?: { status?: string; message?: string } } | null;
+    const isWrite = init.method === "POST" || path.includes("batchUpdate");
+    const operation = isWrite ? "write" : "request";
+    const googleMessage = details?.error?.message;
+    const permissionHint = response.status === 403 && isWrite ? " The configured service account needs Editor access to this spreadsheet." : "";
+    throw new WorkbookUnavailableError(`Google Sheets ${operation} failed (${details?.error?.status ?? response.status}).${permissionHint}${googleMessage ? ` ${googleMessage}` : ""}`);
+  }
   return response;
 }
 
@@ -117,12 +166,16 @@ export async function readGoogleSheetIntakeRows() {
 }
 
 export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>) {
+  await updateGoogleSheetIntakeRows([{ row, updates }]);
+}
+
+export async function updateGoogleSheetIntakeRows(rows: Array<{ row: number; updates: Array<[string, string]> }>) {
   await request("/values:batchUpdate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       valueInputOption: "USER_ENTERED",
-      data: updates.map(([column, value]) => ({ range: `${sheetName()}!${column}${row}`, values: [[value]] })),
+      data: rows.flatMap(({ row, updates }) => updates.map(([column, value]) => ({ range: `${sheetName()}!${column}${row}`, values: [[value]] }))),
     }),
   });
 }
