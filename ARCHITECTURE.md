@@ -18,6 +18,10 @@ Employee authentication is Microsoft Entra OIDC restricted to the LACC tenant an
 
 Graph Excel APIs document delegated `Files.ReadWrite`; application-only permissions are not supported for the required workbook operations. The server therefore uses a dedicated, least-privileged LACC workbook-operator account with delegated refresh authorization held in `WORKBOOK_OPERATOR_REFRESH_TOKEN`. This requires an administrator to complete an interactive consent/bootstrap step once and to preserve refresh-token rotation securely.
 
+## Google Sheets production authentication
+
+The current Google Sheets backend uses a dedicated service account shared only to the support-response spreadsheet. Vercel production can authenticate through Google Workload Identity Federation using a Vercel OIDC token, then impersonate that service account for a short-lived Sheets token. The service account needs no project-wide data role. Service-account key auth remains an option only where organization policy allows it; the legacy OAuth refresh-token flow remains as a fallback for existing installations.
+
 ## Reliability
 
 - Each write creates UUID-based `OperationUID`, entity IDs, and a human ticket number derived from the UUID; no last-row arithmetic is used.
@@ -25,6 +29,8 @@ Graph Excel APIs document delegated `Files.ReadWrite`; application-only permissi
 - Updates carry an expected `Version`; stale writes fail with a conflict message.
 - Graph 429/408/5xx responses use bounded retry with `Retry-After` and jitter.
 - Each operation uses a persistent workbook session and closes it afterward. Writes are kept sequential per operation; cross-instance serialization remains an Excel/Graph operational risk and must be load-tested against the real tenant.
+- When the Google Sheets write fails, the browser keeps the latest update per ticket in an IndexedDB outbox (with a localStorage fallback) and marks the ticket as pending in the UI. The next ticket save submits the pending updates and the new update in one Sheets `batchUpdate` request. A successful batch clears only the local operations that were included.
+- This retry queue is local to the browser profile and is not shared across staff devices. Vercel function memory and disk are not used as a queue, so no separate hosting service is required. Clearing browser site data removes its pending retries.
 
 ## Attachments and notifications
 

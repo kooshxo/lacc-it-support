@@ -1,5 +1,5 @@
 import type { AttachmentRecord, Employee, HealthCheck, Ticket, TicketDetail, TicketEvent, TicketMessage } from "@/lib/domain/models";
-import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
+import type { MessageCreateInput, PendingTicketWrite, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
 
 export interface TicketFilter {
   requesterUid?: string;
@@ -14,6 +14,7 @@ export interface TicketRepository {
   getTicketByNumber(ticketNumber: string, actor: Employee): Promise<TicketDetail | null>;
   createTicket(input: TicketCreateInput, requester: Employee): Promise<Ticket>;
   updateTicket(ticketUid: string, input: TicketUpdateInput, actor: Employee): Promise<Ticket>;
+  updateTickets?(writes: PendingTicketWrite[], actor: Employee): Promise<void>;
   addMessage(ticketUid: string, input: MessageCreateInput, actor: Employee): Promise<TicketMessage>;
   addAttachment(record: AttachmentRecord, actor: Employee): Promise<void>;
   listEvents(ticketUid: string): Promise<TicketEvent[]>;

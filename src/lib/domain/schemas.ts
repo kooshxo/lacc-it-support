@@ -26,6 +26,19 @@ export const ticketUpdateSchema = z.object({
 });
 export type TicketUpdateInput = z.infer<typeof ticketUpdateSchema>;
 
+export const pendingTicketWriteSchema = z.object({
+  operationUid: z.uuid(),
+  ticketUid: z.string().regex(/^google-row-[1-9]\d*$/),
+  ticketNumber: z.string().regex(/^GS-[1-9]\d*$/),
+  expectedVersion: z.number().int().positive(),
+  status: z.enum(["NEW", "RESOLVED", "CLOSED"]),
+  completedBy: z.string().trim().min(1).max(100),
+  resolutionNotes: z.string().trim().max(8000).optional(),
+  completedAt: z.iso.datetime(),
+});
+export const pendingTicketWritesSchema = z.array(pendingTicketWriteSchema).max(350);
+export type PendingTicketWrite = z.infer<typeof pendingTicketWriteSchema>;
+
 export const messageCreateSchema = z.object({
   operationUid: z.uuid(),
   type: z.enum(messageTypes),

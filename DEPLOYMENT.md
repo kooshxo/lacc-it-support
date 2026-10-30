@@ -1,28 +1,29 @@
 # Deployment
 
-## Google Sheets production setup
+## Google Sheets and staff login setup
 
-The Google Sheet is the canonical source. Configure these Vercel environment variables for Production and Preview:
+The Google Sheet is the canonical source. Configure these values in Vercel Production. Keep the shared staff password and service-account key out of Preview unless that environment is explicitly trusted and separately scoped:
 
 ```text
 DATA_BACKEND=google
 AUTH_BYPASS=false
-AUTH_GOOGLE_ID=<secret>
-AUTH_GOOGLE_SECRET=<secret>
 AUTH_SECRET=<secret>
-IT_STAFF_EMAILS=staff-one@example.org,staff-two@example.org
+STAFF_LOGIN_PASSWORD=<secret>
 DEMO_USER_EMAIL=demo@example.org
 DEMO_STAFF_NAME=IT Staff
 GOOGLE_SHEETS_SPREADSHEET_ID=your-google-sheet-id
 GOOGLE_SHEETS_TAB_NAME=IT support request
-GOOGLE_SHEETS_CLIENT_ID=<secret>
-GOOGLE_SHEETS_CLIENT_SECRET=<secret>
-GOOGLE_SHEETS_REFRESH_TOKEN=<secret>
+GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=<secret>
 ```
 
-Keep `AUTH_BYPASS=false` in production. Configure `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `AUTH_SECRET`, and set `IT_STAFF_EMAILS` to the explicit staff allowlist. The portal rejects Google accounts not on that list.
+Keep `AUTH_BYPASS=false` in production. Configure `AUTH_SECRET` and `STAFF_LOGIN_PASSWORD` as encrypted Vercel Production values. The application accepts the exact user name `Staff`; it does not use Google OAuth or a staff email allowlist. All staff sessions share one IT Staff identity, while requester profiles are independent and keyed by normalized requester email.
 
-The portal reads the `IT support request` tab directly. It displays only rows dated on or after the most recent Wednesday and leaves historical rows untouched. Completing a ticket writes `Yes` to K, the completion timestamp to P, and the typed staff name to R on that request's exact source row.
+For the Sheets connection, share only the support-response spreadsheet with the service account as an Editor. Production currently uses its encrypted private-key setting in Vercel. The code also supports Workload Identity Federation: enable the Google Sheets API, IAM Service Account Credentials API, and Security Token Service API, configure a provider for the Vercel team issuer, and grant only the production LACC identity permission to impersonate the service account. Keep the service account free of project-wide data roles. Service-account authentication takes precedence over legacy OAuth refresh-token settings.
+
+If a Sheets write is rejected or the connection fails, the ticket site keeps that staff member's latest update per ticket in the browser's local outbox and displays the Sheets error and pending state. The next save sends the queued updates with the new ticket update in one batch. The queue is per browser profile, remains there until a batch succeeds, and is removed if browser site data is cleared; it is not a cross-device backup.
+
+The portal reads all dated rows from the `IT support request` tab. The Support Inbox defaults to unresolved tickets submitted in the last 14 days; All Tickets and requester profiles retain the full source history. Requester profiles group by normalized email and show all previous tickets for that email. Completing a ticket writes `Yes` to K, the completion timestamp to P, and the typed staff name to R on that request's exact source row.
 
 ## Legacy Microsoft Excel setup
 

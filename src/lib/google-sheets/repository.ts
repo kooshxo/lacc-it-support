@@ -1,21 +1,20 @@
 import "server-only";
 import type { AttachmentRecord, Employee, HealthCheck, Priority, Ticket, TicketDetail, TicketEvent, TicketMessage, TicketStatus } from "@/lib/domain/models";
 import { canManageTickets, canReadTicket } from "@/lib/domain/policy";
-import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
-import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRow } from "./client";
+import type { MessageCreateInput, PendingTicketWrite, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
+import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRows } from "./client";
 import { hasRealSourceValue, isCompletionValue, isValidSourceDate } from "@/lib/domain/resolution";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 
 const field = (row: unknown[], index: number) => String(row[index] ?? "").trim();
 const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
-const lastWednesday = (now = new Date()) => { const date = new Date(now); date.setHours(0, 0, 0, 0); const days = (date.getDay() - 3 + 7) % 7 || 7; date.setDate(date.getDate() - days); return date; };
 const statusFor = (solved: string, solvedDate: string, completion: string, staff: string): TicketStatus => isCompletionValue(solved) || isValidSourceDate(solvedDate) || isValidSourceDate(completion) || hasRealSourceValue(staff) ? "RESOLVED" : "NEW";
 
 type IntakeTicket = Ticket & { sourceRow: number };
 
 function ticketFrom(row: unknown[], sourceRow: number): IntakeTicket | null {
   const created = asDate(field(row, 0));
-  if (!created || created < lastWednesday()) return null;
+  if (!created) return null;
   const requesterEmail = field(row, 4).toLowerCase();
   const detail = field(row, 7);
   const needs = field(row, 8);
@@ -93,22 +92,43 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     if (!ticket) throw new NotFoundError();
     if (ticket.version !== input.expectedVersion) throw new ConflictError();
     if (input.status === "NEW") {
-      await updateGoogleSheetIntakeRow(ticket.sourceRow, [["K", "FALSE"], ["M", ""], ["O", ""], ["P", "FALSE"], ["R", "TBD"]]);
+      await this.updateTickets([{ operationUid: input.operationUid, ticketUid: ticket.ticketUid, ticketNumber: ticket.ticketNumber, expectedVersion: input.expectedVersion, status: "NEW", completedBy: actor.displayName, resolutionNotes: "", completedAt: new Date().toISOString() }], actor);
       return { ...ticket, status: "NEW", assigneeUid: "", historicalStaff: "TBD", resolutionNotes: "", sourceSolvedValue: "FALSE", sourceSolvedDate: "", completionTimestamp: "FALSE", updatedAt: new Date().toISOString(), resolvedAt: "" };
     }
     if (input.status !== "RESOLVED" && input.status !== "CLOSED") return ticket;
     const completedAt = new Date().toISOString();
     const staff = input.completedBy || actor.displayName;
     const solvedDate = completedAt.slice(0, 10);
-    const updates: Array<[string, string]> = [["K", "Yes"], ["O", solvedDate], ["P", "TRUE"], ["R", staff]];
-    if (input.resolutionNotes) updates.push(["M", input.resolutionNotes]);
-    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
+    await this.updateTickets([{ operationUid: input.operationUid, ticketUid: ticket.ticketUid, ticketNumber: ticket.ticketNumber, expectedVersion: input.expectedVersion, status: input.status, completedBy: staff, resolutionNotes: input.resolutionNotes, completedAt }], actor);
     return { ...ticket, status: "RESOLVED", assigneeUid: "", historicalStaff: staff, resolutionNotes: input.resolutionNotes || ticket.resolutionNotes, sourceSolvedValue: "Yes", sourceSolvedDate: solvedDate, completionTimestamp: "TRUE", updatedAt: completedAt, resolvedAt: completedAt };
+  }
+
+  async updateTickets(writes: PendingTicketWrite[], actor: Employee): Promise<void> {
+    if (!canManageTickets(actor)) throw new AuthorizationError();
+    if (!writes.length) return;
+    const tickets = await this.tickets();
+    const byUid = new Map(tickets.map((ticket) => [ticket.ticketUid, ticket]));
+    const latestByTicket = new Map<string, PendingTicketWrite>();
+    for (const write of writes) {
+      const ticket = byUid.get(write.ticketUid);
+      if (!ticket || ticket.ticketNumber !== write.ticketNumber) throw new NotFoundError();
+      if (ticket.version !== write.expectedVersion) throw new ConflictError();
+      latestByTicket.set(write.ticketUid, write);
+    }
+    await updateGoogleSheetIntakeRows([...latestByTicket.values()].map((write) => {
+      const ticket = byUid.get(write.ticketUid)!;
+      if (write.status === "NEW") {
+        return { row: ticket.sourceRow, updates: [["K", "FALSE"], ["M", ""], ["O", ""], ["P", "FALSE"], ["R", "TBD"]] as Array<[string, string]> };
+      }
+      const updates: Array<[string, string]> = [["K", "Yes"], ["O", write.completedAt.slice(0, 10)], ["P", "TRUE"], ["R", write.completedBy]];
+      if (write.resolutionNotes !== undefined) updates.push(["M", write.resolutionNotes]);
+      return { row: ticket.sourceRow, updates };
+    }));
   }
 
   async healthCheck(): Promise<HealthCheck> {
     const started = Date.now();
-    try { await this.tickets(); return { status: "healthy", backend: "google", workbookReadable: true, workbookWritable: true, schemaVersion: "Google form intake", missingTables: [], problems: [], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
+    try { await this.tickets(); return { status: "healthy", backend: "google", workbookReadable: true, workbookWritable: null, schemaVersion: "Google form intake", missingTables: [], problems: ["Read access succeeded. Write access is confirmed by ticket updates; the health check does not modify the live spreadsheet."], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
     catch (error) { return { status: "unconfigured", backend: "google", workbookReadable: false, workbookWritable: false, schemaVersion: null, missingTables: [], problems: [error instanceof Error ? error.message : "Google Sheets check failed."], checkedAt: new Date().toISOString(), latencyMs: Date.now() - started }; }
   }
 }

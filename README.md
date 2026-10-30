@@ -12,7 +12,7 @@ The completion editor writes the existing sheet fields: technician/staff name, r
 
 ## Staff access
 
-Google OAuth is restricted to the configured IT staff allowlist (currently Duane and Dominic). The app does not use service-account keys. Configure the OAuth client and allowlist through Vercel environment variables; never commit credentials or tokens.
+Staff sign in with the shared username `Staff` and a password stored as the encrypted `STAFF_LOGIN_PASSWORD` environment variable. Every staff session uses the shared IT Staff identity; requester identity remains separate and is keyed by each ticket's normalized email. The server reads and updates the support-response spreadsheet through a service account shared only to that workbook. Never commit credentials or tokens.
 
 ## Local verification
 
@@ -27,13 +27,14 @@ pnpm test
 pnpm build
 ```
 
-Fixture mode is deliberately blocked in production. Configure `.env.local` from `.env.example` and use `DATA_BACKEND=graph` only after the canonical `.xlsx` and delegated Microsoft authorization are ready.
+Fixture mode is deliberately blocked in production. Configure `.env.local` from `.env.example`; `DATA_BACKEND=graph` is for the separate Microsoft workbook backend.
 
 ## Routes
 
-- `/it` — Received-first Support Inbox with search, filters, ticket detail, and completion/reset actions.
-- `/it?state=ALL` — All Tickets view with 10-ticket pagination.
-- `/users` — requester directory keyed by normalized lowercase email, with search and ticket history links.
+- `/it` — Support Inbox for unresolved tickets submitted in the last 14 days, with search, filters, ticket detail, and completion/reset actions.
+- `/it?state=ALL` — complete ticket history with 10-ticket pagination.
+- `/users` — requester directory keyed by normalized lowercase email.
+- `/users/<email>` — requester profile with all previous tickets for that email.
 - `/admin` — administrator diagnostics.
 - `/requests/new` — employee submission flow when enabled.
 - LACC Inventory — external link to `https://lacc-asset-tracker.vercel.app`.
@@ -57,17 +58,17 @@ pnpm test
 pnpm build
 ```
 
-Fixture mode is for local development only. Production must use the Google Sheets backend and configured OAuth credentials. See [DEPLOYMENT.md](./DEPLOYMENT.md) and [SECURITY.md](./SECURITY.md).
+Fixture mode is for local development only. Production uses the Google Sheets backend, the shared Staff credentials, and a service account shared to the support workbook. See [DEPLOYMENT.md](./DEPLOYMENT.md) and [SECURITY.md](./SECURITY.md).
 
 ## Configuration
 
-Required values are documented in `.env.example`. Typical production values include the Google OAuth client ID/secret, redirect URI, allowed staff emails, spreadsheet ID, and sheet/tab mapping. Keep `.env.local` out of version control and configure production values in Vercel’s encrypted environment settings.
+Required values are documented in `.env.example`. Production secrets include `STAFF_LOGIN_PASSWORD`, `AUTH_SECRET`, the spreadsheet ID, and service-account email/private key. Keep `.env.local` out of version control and configure secrets in Vercel’s encrypted environment settings.
 
 ## Project documentation
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — data flow and route/component boundaries.
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — Vercel deployment and environment setup.
-- [SECURITY.md](./SECURITY.md) — OAuth, secret handling, and operational safeguards.
+- [SECURITY.md](./SECURITY.md) — shared staff access, secret handling, and operational safeguards.
 - [RESEARCH.md](./RESEARCH.md) — source-sheet observations and normalization decisions.
 
 ## Data schema and end-to-end behavior
@@ -78,7 +79,7 @@ The Google Form response tab is read as a positional row. The repository keeps t
 
 | Column | Source meaning | Portal use |
 | --- | --- | --- |
-| A | Submitted timestamp | `createdAt`; rows older than the active retention cutoff are omitted from the operational import. |
+| A | Submitted timestamp | `createdAt`; retained for full ticket history, with the inbox applying its 14-day window in the UI. |
 | B | Requester name | Display and requester directory label. |
 | E | Requester email | Trimmed/lowercased requester identity and search key. |
 | F | Department | Department filter and ticket metadata. |
@@ -108,14 +109,14 @@ Saving Resolved writes K=`Yes`, O=`YYYY-MM-DD`, P=`TRUE`, R=`<logged-in staff na
 
 ### Application flow
 
-1. `src/lib/google-sheets/client.ts` reads the configured spreadsheet through Google OAuth.
-2. `GoogleSheetTicketRepository` maps and normalizes rows, applies the date cutoff, and calculates status.
-3. `/it` renders the Received-first queue; `/it?state=ALL` renders paginated history; `/users` groups requesters by normalized email.
+1. `src/lib/google-sheets/client.ts` uses a service-account assertion to access the configured spreadsheet.
+2. `GoogleSheetTicketRepository` maps and normalizes all dated rows and calculates status.
+3. `/it` renders the recent Received queue; `/it?state=ALL` renders full paginated history; `/users` groups all requesters by normalized email and links to their profiles.
 4. Ticket detail actions call `/api/tickets/[ticketNumber]`, which validates staff authorization and expected row version.
 5. The repository writes the matching source row and returns the updated representation. No attachment storage or requester-message side channel is used.
 
 ### Security and collaboration model
 
-Production access is Google OAuth with the IT allowlist. Secrets stay in Vercel environment variables. The GitHub `main` branch is intended to be protected with pull-request review and status checks; collaborators should work on branches and open PRs for review. Vercel is connected to this repository so approved pushes can deploy through the project’s normal integration.
+Staff sign-in uses one shared `Staff` credentials account. Its password and the Sheets service-account key stay in Vercel encrypted environment variables. Because the staff account is shared, the portal identifies staff actions as IT Staff; the typed technician name is written to the source sheet when a ticket is completed. The GitHub `main` branch is intended to be protected with pull-request review and status checks; collaborators should work on branches and open PRs for review. Vercel is connected to this repository so approved pushes can deploy through the project’s normal integration.
 
 On the free plan, GitHub cannot enforce branch protection on this private personal repository. The repository therefore includes `.github/workflows/auto-pr.yml`: every push to a non-`main` branch opens one review PR automatically (and later pushes update that same PR). Production remains the `main` branch; review and merge are still manual. A GitHub Team/Enterprise organization can replace this workflow with enforced branch protection and required approvals.
