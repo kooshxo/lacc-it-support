@@ -7,7 +7,7 @@
 - Zod input validation, bounded message/description lengths, safe attachment MIME/name/size validation, and private storage references.
 - Same-origin checks protect the attachment POST; protected writes are server actions or same-origin Route Handlers.
 - Security headers include CSP, `frame-ancestors 'none'`, `X-Content-Type-Options`, strict referrer policy, and a restrictive Permissions Policy.
-- Secrets belong only in `.env.local`/Vercel secrets. The workbook, credentials tabs, refresh token, and Graph tokens are never public assets or browser state.
+- Secrets belong only in `.env.local`/Vercel secrets. The service-account private key, workbook credentials, refresh tokens, and Graph tokens are never public assets or browser state.
 - Production refuses the fixture backend. Fixture mode is only for local tests and browser QA.
 
 ## Required security tests

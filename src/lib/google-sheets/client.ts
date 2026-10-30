@@ -1,4 +1,5 @@
 import "server-only";
+import { createSign } from "node:crypto";
 
 import { WorkbookUnavailableError } from "@/lib/excel/repository";
 
@@ -8,7 +9,45 @@ const required = (name: string) => {
   return value;
 };
 
-async function accessToken() {
+const base64Url = (value: string) => Buffer.from(value).toString("base64url");
+
+async function serviceAccountAccessToken() {
+  const serviceAccountEmail = required("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+  const privateKey = required("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY").replace(/\\n/g, "\n");
+  const now = Math.floor(Date.now() / 1000);
+  const unsignedToken = [
+    base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" })),
+    base64Url(JSON.stringify({
+      iss: serviceAccountEmail,
+      scope: "https://www.googleapis.com/auth/spreadsheets",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    })),
+  ].join(".");
+  const signer = createSign("RSA-SHA256");
+  signer.update(unsignedToken);
+  signer.end();
+  const assertion = `${unsignedToken}.${signer.sign(privateKey, "base64url")}`;
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { error?: string } | null;
+    throw new WorkbookUnavailableError(`Google service account could not provide a Sheets access token (${details?.error ?? response.status}).`);
+  }
+  const payload = await response.json() as { access_token?: string };
+  if (!payload.access_token) throw new WorkbookUnavailableError("Google returned no Sheets access token for the service account.");
+  return payload.access_token;
+}
+
+async function oauthRefreshTokenAccessToken() {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -20,10 +59,19 @@ async function accessToken() {
     }),
     cache: "no-store",
   });
-  if (!response.ok) throw new WorkbookUnavailableError("Google OAuth could not provide a Sheets access token.");
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { error?: string } | null;
+    throw new WorkbookUnavailableError(`Google OAuth could not provide a Sheets access token (${details?.error ?? response.status}).`);
+  }
   const payload = await response.json() as { access_token?: string };
   if (!payload.access_token) throw new WorkbookUnavailableError("Google OAuth returned no Sheets access token.");
   return payload.access_token;
+}
+
+async function accessToken() {
+  const hasServiceAccountSettings = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+  if (hasServiceAccountSettings) return serviceAccountAccessToken();
+  return oauthRefreshTokenAccessToken();
 }
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";

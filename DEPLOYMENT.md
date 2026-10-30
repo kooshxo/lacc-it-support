@@ -15,12 +15,13 @@ DEMO_USER_EMAIL=demo@example.org
 DEMO_STAFF_NAME=IT Staff
 GOOGLE_SHEETS_SPREADSHEET_ID=your-google-sheet-id
 GOOGLE_SHEETS_TAB_NAME=IT support request
-GOOGLE_SHEETS_CLIENT_ID=<secret>
-GOOGLE_SHEETS_CLIENT_SECRET=<secret>
-GOOGLE_SHEETS_REFRESH_TOKEN=<secret>
+GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email>
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=<secret>
 ```
 
 Keep `AUTH_BYPASS=false` in production. Configure `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, and `AUTH_SECRET`, and set `IT_STAFF_EMAILS` to the explicit staff allowlist. The portal rejects Google accounts not on that list.
+
+For the Sheets connection, enable the Google Sheets API in the Cloud project, create a service account, and share only the support-response spreadsheet with its email as an Editor. The app reads intake rows and writes resolution fields, so it needs edit access to that workbook. Store the service account email and private key in Vercel as `GOOGLE_SERVICE_ACCOUNT_EMAIL` and the encrypted `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`; encode private-key line breaks as `\\n` if entering it as one line. Do not grant the service account project-wide roles. Service-account settings take precedence over the legacy OAuth refresh-token settings.
 
 The portal reads the `IT support request` tab directly. It displays only rows dated on or after the most recent Wednesday and leaves historical rows untouched. Completing a ticket writes `Yes` to K, the completion timestamp to P, and the typed staff name to R on that request's exact source row.
 
