@@ -3,6 +3,7 @@ import { messageTypes, priorities, ticketStatuses } from "./models";
 
 export const ticketCreateSchema = z.object({
   operationUid: z.uuid(),
+  preferredPin: z.string().regex(/^\d{4,12}$/).optional(),
   subject: z.string().trim().min(4).max(140),
   description: z.string().trim().min(10).max(8000),
   category: z.string().trim().min(2).max(80),
