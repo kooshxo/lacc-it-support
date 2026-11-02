@@ -98,7 +98,7 @@ export interface TicketDetail { ticket: Ticket; messages: TicketMessage[]; event
 
 export interface HealthCheck {
   status: "healthy" | "degraded" | "unconfigured";
-  backend: "graph" | "fixture" | "google";
+  backend: "graph" | "fixture" | "google" | "sql";
   workbookReadable: boolean;
   workbookWritable: boolean;
   schemaVersion: string | null;

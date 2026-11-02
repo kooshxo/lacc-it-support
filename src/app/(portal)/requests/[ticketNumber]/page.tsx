@@ -19,7 +19,7 @@ export default async function TicketPage({ params, searchParams }: { params: Pro
   const agent = employee.role !== "EMPLOYEE";
   return <div className="space-y-6">
     <Link href={agent ? "/it" : "/requests"} className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Back to {agent ? "support inbox" : "my requests"}</Link>
-    {created && <Alert className="border-emerald-200 bg-emerald-50 text-emerald-950"><CheckCircle2/><AlertTitle>Request received</AlertTitle><AlertDescription>Your request was committed to the support workbook as {ticket.ticketNumber}.</AlertDescription></Alert>}
+    {created && <Alert className="border-emerald-200 bg-emerald-50 text-emerald-950"><CheckCircle2/><AlertTitle>Request received</AlertTitle><AlertDescription>Your request was saved securely as {ticket.ticketNumber}.</AlertDescription></Alert>}
     <div><p className="text-sm font-medium text-primary">{ticket.ticketNumber}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{ticket.subject}</h1><div className="mt-3 flex flex-wrap gap-2"><StatusBadge status={ticket.status}/>{agent && <PriorityBadge priority={ticket.priority}/>}</div></div>
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
       <div className="space-y-6">

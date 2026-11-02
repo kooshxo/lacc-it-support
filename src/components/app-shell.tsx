@@ -18,7 +18,7 @@ export function AppShell({ employee, children }: { employee: Employee; children:
         <aside className="hidden min-h-[calc(100vh-4rem)] border-r bg-background p-4 md:block">
           <nav className="space-y-1" aria-label="Primary navigation">
             <NavLink href="/dashboard" icon={<LayoutDashboard />} label="Overview" />
-            {!elevated && <><NavLink href="/requests/new" icon={<Plus />} label="Get IT help" /><NavLink href="/requests" icon={<ClipboardList />} label="My requests" /></>}
+            {!elevated && <><NavLink href="/requests/new" icon={<Plus />} label="Badge & access request" /><NavLink href="/requests" icon={<ClipboardList />} label="My requests" /></>}
             {elevated && <><Separator className="my-4" /><NavLink href="/it" icon={<ShieldCheck />} label="Support inbox" /><NavLink href="/it?state=ALL&page=1" icon={<ClipboardList />} label="All tickets" /><NavLink href="/users" icon={<Users />} label="Users" /><Separator className="my-4" /><NavLink href="https://lacc-asset-tracker.vercel.app" icon={<PackageOpen />} label="LACC inventory" external />{employee.role === "ADMIN" && <NavLink href="/admin" icon={<Settings />} label="Administration" />}</>}
           </nav>
         </aside>
