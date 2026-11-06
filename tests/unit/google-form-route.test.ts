@@ -62,4 +62,31 @@ describe("Google Form webhook optional fields", () => {
       location: "",
     }));
   });
+
+  it("accepts and preserves a request type from the legacy multi-select form", async () => {
+    const body = JSON.stringify({
+      formId: "approved-form",
+      responseId: "response-legacy-request-type",
+      submittedAt: new Date().toISOString(),
+      answers: {
+        email: "employee@thelatincenter.org",
+        name: "",
+        department: "",
+        phone: "",
+        extension: "",
+        requestType: "Printing Issues / Problemas con impresora,Other / Otra",
+        details: "Sanitized legacy form payload",
+        badgeNumber: "",
+        badgeName: "",
+        location: "",
+      },
+    });
+
+    const response = await POST(signedRequest(body));
+
+    expect(response.status).toBe(201);
+    expect(createGoogleFormTicket).toHaveBeenCalledWith(expect.objectContaining({
+      requestType: "Printing Issues / Problemas con impresora,Other / Otra",
+    }));
+  });
 });
