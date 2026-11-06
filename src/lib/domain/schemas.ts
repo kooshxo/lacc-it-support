@@ -21,9 +21,9 @@ export const ticketUpdateSchema = z.object({
   status: z.enum(ticketStatuses).optional(),
   priority: z.enum(priorities).optional(),
   category: z.string().trim().min(2).max(80).optional(),
-  assigneeUid: z.string().trim().max(100).optional(),
-  completedBy: z.string().trim().min(2).max(100).optional(),
+  completedBy: z.string().trim().max(100).optional(),
   resolutionNotes: z.string().trim().max(8000).optional(),
+  internalNote: z.string().trim().max(8000).optional(),
 });
 export type TicketUpdateInput = z.infer<typeof ticketUpdateSchema>;
 

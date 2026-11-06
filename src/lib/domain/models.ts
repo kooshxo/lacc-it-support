@@ -1,16 +1,11 @@
 export const roles = ["EMPLOYEE", "IT_AGENT", "ADMIN"] as const;
 export type Role = (typeof roles)[number];
 
-export const ticketStatuses = [
-  "NEW",
-  "ASSIGNED",
-  "IN_PROGRESS",
-  "WAITING_ON_USER",
-  "WAITING_ON_VENDOR",
-  "RESOLVED",
-  "CLOSED",
-] as const;
-export type TicketStatus = (typeof ticketStatuses)[number];
+/** Statuses staff may set. Legacy values remain readable for imported records. */
+export const ticketStatuses = ["NEW", "IN_PROGRESS", "RESOLVED"] as const;
+export const legacyTicketStatuses = ["ASSIGNED", "WAITING_ON_USER", "WAITING_ON_VENDOR", "CLOSED"] as const;
+export type EditableTicketStatus = (typeof ticketStatuses)[number];
+export type TicketStatus = EditableTicketStatus | (typeof legacyTicketStatuses)[number];
 
 export const priorities = ["P1", "P2", "P3", "P4"] as const;
 export type Priority = (typeof priorities)[number];
@@ -50,6 +45,10 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   resolvedAt: string;
+  /** Set when an explicitly solved ticket is reopened; preserves older source completion fields. */
+  reopenedAt?: string;
+  /** The person who actually completed the work; never inferred from shared login identity. */
+  completedBy?: string;
   version: number;
   /** Source-of-truth fields; historical staff is not an active assignment. */
   historicalStaff?: string;

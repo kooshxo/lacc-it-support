@@ -6,6 +6,8 @@ import { canReadTicket, canManageTickets, canCreateMessage, employeeVisibleMessa
 import { AuthorizationError, ConflictError, NotFoundError, WorkbookUnavailableError, type TicketFilter, type TicketRepository } from "@/lib/excel/repository";
 import { encryptPin } from "./secrets";
 import { database } from "./client";
+import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
+import { isTicketResolved } from "@/lib/domain/resolution";
 
 export class SqlTicketRepository implements TicketRepository {
   // Identity is resolved from verified sessions in authz, never from an arbitrary email.
@@ -38,16 +40,37 @@ export class SqlTicketRepository implements TicketRepository {
     if(!canManageTickets(actor)) throw new AuthorizationError(); const client=await database().connect();
     try {await client.query('BEGIN'); const row=(await client.query<{data:Ticket}>('SELECT data FROM lacc_tickets WHERE uid=$1 FOR UPDATE',[uid])).rows[0]; if(!row) throw new NotFoundError();
       const replay=(await client.query<{data:TicketEvent}>('SELECT data FROM lacc_ticket_events WHERE operation_uid=$1',[input.operationUid])).rows[0];
-      if(replay){if(replay.data.ticketUid!==uid||replay.data.actorUid!==actor.employeeUid)throw new AuthorizationError(); await client.query('COMMIT');return row.data;}
+      const replayNote=(await client.query<{data:TicketMessage}>('SELECT data FROM lacc_messages WHERE operation_uid=$1',[input.operationUid])).rows[0];
+      if(replay||replayNote){
+        if(replay&&(replay.data.ticketUid!==uid||replay.data.actorUid!==actor.employeeUid))throw new AuthorizationError();
+        if(replayNote&&(replayNote.data.ticketUid!==uid||replayNote.data.authorUid!==actor.employeeUid))throw new AuthorizationError();
+        await client.query('COMMIT');return row.data;
+      }
       if(row.data.version!==input.expectedVersion) throw new ConflictError(); const now=new Date().toISOString();
-      const {expectedVersion,operationUid,completedBy,...changes}=input; void expectedVersion;
-      const ticket:Ticket={...row.data,...changes,updatedAt:now,version:row.data.version+1};
-      if(input.status==='RESOLVED'||input.status==='CLOSED'){ticket.resolvedAt=now;ticket.historicalStaff=completedBy||actor.displayName; ticket.sourceSolvedValue='Yes';}
-      else if(input.status){ticket.resolvedAt='';ticket.sourceSolvedValue='';ticket.sourceSolvedDate='';ticket.completionTimestamp='';ticket.historicalStaff='';}
+      const currentStatus=canonicalTicketStatus(row.data.status),nextStatus=input.status?canonicalTicketStatus(input.status):currentStatus;
+      const ticket:Ticket={...row.data};
+      const editableFields:[keyof Ticket,unknown][]=[["priority",input.priority],["completedBy",input.completedBy],["resolutionNotes",input.resolutionNotes]];
+      for(const [field,value] of editableFields)if(value!==undefined)(ticket as unknown as Record<string,unknown>)[field]=value;
+      if(input.status&&nextStatus!==currentStatus){
+        ticket.status=nextStatus;
+        if(nextStatus==="RESOLVED"){ticket.resolvedAt=now;ticket.reopenedAt="";ticket.completedBy=input.completedBy?.trim()??"";}
+        else{if(isTicketResolved(row.data))ticket.reopenedAt=now;ticket.resolvedAt="";ticket.completedBy="";}
+      }
+      const internalNote=input.internalNote?.trim();
+      const fields=(Object.keys(ticket) as (keyof Ticket)[]).filter((field)=>field!=="updatedAt"&&field!=="version"&&field!=="operationUid"&&JSON.stringify(row.data[field]??"")!==JSON.stringify(ticket[field]??""));
+      if(!fields.length&&!internalNote){await client.query('COMMIT');return row.data;}
+      ticket.updatedAt=now;ticket.version=row.data.version+1;
       await client.query('UPDATE lacc_tickets SET data=$1,version=$2 WHERE uid=$3',[JSON.stringify(ticket),ticket.version,uid]);
-      const fields=Object.keys(changes);const before=Object.fromEntries(fields.map(field=>[field,row.data[field as keyof Ticket]??'']));const after=Object.fromEntries(fields.map(field=>[field,ticket[field as keyof Ticket]??'']));
-      const event:TicketEvent={eventUid:randomUUID(),operationUid,ticketUid:uid,actorUid:actor.employeeUid,eventType:'UPDATED',field:fields.join(','),oldValue:JSON.stringify(before),newValue:JSON.stringify(after),createdAt:now};
-      await client.query('INSERT INTO lacc_ticket_events(uid,ticket_uid,operation_uid,data) VALUES($1,$2,$3,$4)',[event.eventUid,uid,operationUid,JSON.stringify(event)]);await client.query('COMMIT');return ticket;
+      if(fields.length){
+        const before=Object.fromEntries(fields.map(field=>[field,row.data[field]??""]));const after=Object.fromEntries(fields.map(field=>[field,ticket[field]??""]));
+        const event:TicketEvent={eventUid:randomUUID(),operationUid:input.operationUid,ticketUid:uid,actorUid:actor.employeeUid,eventType:'UPDATED',field:fields.join(','),oldValue:JSON.stringify(before),newValue:JSON.stringify(after),createdAt:now};
+        await client.query('INSERT INTO lacc_ticket_events(uid,ticket_uid,operation_uid,data) VALUES($1,$2,$3,$4)',[event.eventUid,uid,input.operationUid,JSON.stringify(event)]);
+      }
+      if(internalNote){
+        const note:TicketMessage={messageUid:randomUUID(),operationUid:input.operationUid,ticketUid:uid,authorUid:actor.employeeUid,authorName:actor.displayName,type:"INTERNAL_NOTE",body:internalNote,createdAt:now};
+        await client.query('INSERT INTO lacc_messages(uid,ticket_uid,operation_uid,data) VALUES($1,$2,$3,$4)',[note.messageUid,uid,input.operationUid,JSON.stringify(note)]);
+      }
+      await client.query('COMMIT');return ticket;
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
   }
   async addMessage(uid:string,input:MessageCreateInput,actor:Employee):Promise<TicketMessage>{

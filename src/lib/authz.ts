@@ -7,7 +7,13 @@ import { getRepository } from "@/lib/excel";
 
 export async function getOptionalEmployee(): Promise<Employee | null> {
   let email: string | null | undefined;
-  if (process.env.AUTH_BYPASS === "true" && process.env.NODE_ENV !== "production") email = process.env.DEMO_USER_EMAIL ?? "it.staff@thelatincenter.org";
+  if (process.env.AUTH_BYPASS === "true" && process.env.NODE_ENV !== "production") {
+    if (process.env.DATA_BACKEND === "sql") return {
+      employeeUid: "e2e-shared-it", email: "it-staff@shared.invalid", displayName: "IT Staff",
+      departmentUid: "IT", locationUid: "", role: "IT_AGENT", active: true,
+    };
+    email = process.env.DEMO_USER_EMAIL ?? "it.staff@thelatincenter.org";
+  }
   else {
     const session = await auth();
     email = session?.user?.email;

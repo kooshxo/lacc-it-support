@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAgent, requireEmployee } from "@/lib/authz";
-import { messageCreateSchema, ticketCreateSchema, ticketUpdateSchema } from "@/lib/domain/schemas";
+import { ticketCreateSchema, ticketUpdateSchema } from "@/lib/domain/schemas";
+import type { Ticket } from "@/lib/domain/models";
 import { getRepository } from "@/lib/excel";
-import { AuthorizationError, ConflictError, WorkbookUnavailableError } from "@/lib/excel/repository";
+import { AuthorizationError, ConflictError, NotFoundError, WorkbookUnavailableError } from "@/lib/excel/repository";
 
-export type ActionState = { error?: string; fields?: Record<string, string> };
+export type ActionState = { error?: string; fields?: Record<string, string>; savedVersion?: number; savedTicket?: Pick<Ticket, "status" | "priority" | "completedBy" | "resolutionNotes"> };
 
 export async function createTicketAction(_state: ActionState, formData: FormData): Promise<ActionState> {
   const employee = await requireEmployee();
@@ -18,19 +19,18 @@ export async function createTicketAction(_state: ActionState, formData: FormData
   catch (error) { if (error instanceof WorkbookUnavailableError) return { error: error.message }; throw error; }
 }
 
-export async function addMessageAction(ticketUid: string, ticketNumber: string, _state: ActionState, formData: FormData): Promise<ActionState> {
-  const employee = await requireEmployee();
-  const parsed = messageCreateSchema.safeParse({ operationUid: formData.get("operationUid"), type: formData.get("type"), body: formData.get("body") });
-  if (!parsed.success) return { error: "Write a message before sending." };
-  try { await getRepository().addMessage(ticketUid, parsed.data, employee); revalidatePath(`/requests/${ticketNumber}`); return {}; }
-  catch (error) { if (error instanceof AuthorizationError || error instanceof WorkbookUnavailableError) return { error: error.message }; throw error; }
-}
-
-export async function updateTicketAction(ticketUid: string, ticketNumber: string, expectedVersion: number, _state: ActionState, formData: FormData): Promise<ActionState> {
+export async function updateTicketAction(ticketUid: string, ticketNumber: string, _state: ActionState, formData: FormData): Promise<ActionState> {
   const actor = await requireAgent();
-  const assignee = formData.get("assigneeUid");
-  const parsed = ticketUpdateSchema.safeParse({ expectedVersion, operationUid: String(formData.get("operationUid") || randomUUID()), status: formData.get("status") || undefined, priority: formData.get("priority") || undefined, category: formData.get("category") || undefined, assigneeUid: assignee === "__unassigned__" ? "" : assignee ?? undefined, completedBy: formData.get("completedBy") || undefined, resolutionNotes: formData.get("resolutionNotes") || undefined });
-  if (!parsed.success) return { error: "The update contains an invalid value." };
-  try { await getRepository().updateTicket(ticketUid, parsed.data, actor); revalidatePath(`/requests/${ticketNumber}`); revalidatePath("/it"); redirect("/it"); }
-  catch (error) { if (error instanceof ConflictError || error instanceof WorkbookUnavailableError) return { error: error.message }; throw error; }
+  const completedBy = formData.get("completedBy");
+  const parsed = ticketUpdateSchema.safeParse({ expectedVersion: Number(formData.get("expectedVersion")), operationUid: String(formData.get("operationUid") || randomUUID()), status: formData.get("status") || undefined, priority: formData.get("priority") || undefined, completedBy: typeof completedBy === "string" ? completedBy : undefined, resolutionNotes: formData.get("resolutionNotes"), internalNote: formData.get("internalNote") });
+  if (!parsed.success) return { error: "The update contains an invalid value. Review the fields and try again." };
+  try {
+    const ticket = await getRepository().updateTicket(ticketUid, parsed.data, actor);
+    revalidatePath(`/requests/${ticketNumber}`);
+    revalidatePath("/it");
+    return { savedVersion: ticket.version, savedTicket: { status: ticket.status, priority: ticket.priority, completedBy: ticket.completedBy ?? "", resolutionNotes: ticket.resolutionNotes ?? "" } };
+  } catch (error) {
+    if (error instanceof AuthorizationError || error instanceof ConflictError || error instanceof NotFoundError || error instanceof WorkbookUnavailableError) return { error: error.message };
+    throw error;
+  }
 }

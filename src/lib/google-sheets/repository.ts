@@ -5,6 +5,7 @@ import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@
 import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRow } from "./client";
 import { hasRealSourceValue, isCompletionValue, isValidSourceDate } from "@/lib/domain/resolution";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
+import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 
 const field = (row: unknown[], index: number) => String(row[index] ?? "").trim();
 const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
@@ -92,18 +93,21 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     const ticket = (await this.tickets()).find((item) => item.ticketUid === ticketUid);
     if (!ticket) throw new NotFoundError();
     if (ticket.version !== input.expectedVersion) throw new ConflictError();
-    if (input.status === "NEW") {
-      await updateGoogleSheetIntakeRow(ticket.sourceRow, [["K", "FALSE"], ["M", ""], ["O", ""], ["P", "FALSE"], ["R", "TBD"]]);
-      return { ...ticket, status: "NEW", assigneeUid: "", historicalStaff: "TBD", resolutionNotes: "", sourceSolvedValue: "FALSE", sourceSolvedDate: "", completionTimestamp: "FALSE", updatedAt: new Date().toISOString(), resolvedAt: "" };
+    if (input.status && canonicalTicketStatus(input.status) === canonicalTicketStatus(ticket.status)) {
+      const updates: Array<[string, string]> = [];
+      if (input.completedBy !== undefined && input.completedBy !== ticket.completedBy && input.completedBy.trim()) updates.push(["R", input.completedBy.trim()]);
+      if (input.resolutionNotes !== undefined && input.resolutionNotes !== ticket.resolutionNotes) updates.push(["M", input.resolutionNotes]);
+      if (updates.length) await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
+      return { ...ticket, completedBy: input.completedBy ?? ticket.completedBy, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: updates.length ? new Date().toISOString() : ticket.updatedAt };
     }
-    if (input.status !== "RESOLVED" && input.status !== "CLOSED") return ticket;
+    if (!input.status || canonicalTicketStatus(input.status) !== "RESOLVED") throw new WorkbookUnavailableError("The legacy Google Sheet cannot safely store reopened status changes. SQL ticket storage is required for this workflow.");
     const completedAt = new Date().toISOString();
-    const staff = input.completedBy || actor.displayName;
+    const staff = input.completedBy?.trim() ?? ticket.historicalStaff ?? "";
     const solvedDate = completedAt.slice(0, 10);
     const updates: Array<[string, string]> = [["K", "Yes"], ["O", solvedDate], ["P", "TRUE"], ["R", staff]];
     if (input.resolutionNotes) updates.push(["M", input.resolutionNotes]);
     await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
-    return { ...ticket, status: "RESOLVED", assigneeUid: "", historicalStaff: staff, resolutionNotes: input.resolutionNotes || ticket.resolutionNotes, sourceSolvedValue: "Yes", sourceSolvedDate: solvedDate, completionTimestamp: "TRUE", updatedAt: completedAt, resolvedAt: completedAt };
+    return { ...ticket, status: "RESOLVED", completedBy: staff, historicalStaff: ticket.historicalStaff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, sourceSolvedValue: "Yes", sourceSolvedDate: solvedDate, completionTimestamp: "TRUE", updatedAt: completedAt, resolvedAt: completedAt };
   }
 
   async healthCheck(): Promise<HealthCheck> {
