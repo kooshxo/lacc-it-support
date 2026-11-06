@@ -15,9 +15,10 @@ const payloadSchema = z.object({
     // The current public form only requires work email. Use it as the ticket label
     // unless a later form revision adds a full-name field.
     name: answer(160),
-    department: z.string().trim().min(1).max(100),
-    phone: z.string().trim().min(1).max(60),
-    extension: z.string().trim().min(1).max(20),
+    // Older and conditionally branched form responses may omit these fields.
+    department: answer(100),
+    phone: answer(60),
+    extension: answer(20),
     requestType: z.enum([
       "New badge / Credencial nueva",
       "Replacement badge / Reemplazo de credencial",
@@ -31,7 +32,7 @@ const payloadSchema = z.object({
     details: answer(4000),
     badgeNumber: answer(80),
     badgeName: answer(160),
-    location: z.string().trim().min(1).max(160),
+    location: answer(160),
   }).strict(),
 }).strict();
 
