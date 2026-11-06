@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { createGoogleFormTicket } from "@/lib/sql/google-form-intake";
+import { createGoogleFormTicket, type GoogleFormTicketInput } from "@/lib/sql/google-form-intake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,10 +19,16 @@ const payloadSchema = z.object({
     department: answer(100),
     phone: answer(60),
     extension: answer(20),
-    // Older LACC forms use a broader multi-select list (for example Printing
-    // Issues and E-mail account), so keep the submitted label intact instead
-    // of rejecting values outside the newer badge-specific list.
-    requestType: z.string().trim().min(1).max(2000),
+    requestType: z.enum([
+      "New badge / Credencial nueva",
+      "Replacement badge / Reemplazo de credencial",
+      "Access help / Ayuda con el acceso",
+      "Other / Otro",
+      "New badge",
+      "Replacement badge",
+      "Access or PIN only",
+      "Access / PIN only",
+    ]),
     details: answer(4000),
     badgeNumber: answer(80),
     badgeName: answer(160),
@@ -72,14 +78,16 @@ export async function POST(request: Request) {
   if (parsed.data.formId !== sourceFormId) return Response.json({ error: "This form is not authorized for ticket intake." }, { status: 403 });
   const answers = parsed.data.answers;
   const requesterName = answers.name || answers.email.toLowerCase();
-  const requestTypeMap: Record<string, string> = {
+  const requestTypeMap: Record<string, GoogleFormTicketInput["requestType"]> = {
     "New badge / Credencial nueva": "New badge",
     "Replacement badge / Reemplazo de credencial": "Replacement badge",
     "Access help / Ayuda con el acceso": "Access or PIN only",
     "Other / Otro": "Other",
     "Access / PIN only": "Access or PIN only",
   };
-  const requestType = requestTypeMap[answers.requestType] ?? answers.requestType;
+  const requestType = requestTypeMap[answers.requestType] ??
+    (["New badge", "Replacement badge", "Access or PIN only", "Other"] as const).find((value) => value === answers.requestType);
+  if (!requestType) return Response.json({ error: "This request type is not supported." }, { status: 422 });
   if (requestType === "Replacement badge" && !answers.badgeNumber) {
     return Response.json({ error: "A replacement request requires the existing badge number or 'unknown'." }, { status: 422 });
   }

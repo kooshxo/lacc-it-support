@@ -133,7 +133,7 @@ function payloadFromResponse_(form, response) {
     else if (title === 'Department / Departamento') answers.department = String(value || '').trim();
     else if (title.startsWith('Phone or LACC cellphone')) answers.phone = String(value || '').trim();
     else if (title.startsWith('Extension number')) answers.extension = String(value || '').trim();
-    else if (title.startsWith('What do you need?') || title.startsWith('Please check all IT needs')) answers.requestType = String(value || '').trim();
+    else if (title.startsWith('What do you need?')) answers.requestType = String(value || '').trim();
     else if (title.startsWith('Request details') || title.startsWith('Describe your problem') || title.startsWith('Describe the badge or access')) {
       const detail = String(value || '').trim();
       if (detail) answers.details = answers.details ? `${answers.details}\n${detail}` : detail;

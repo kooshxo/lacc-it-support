@@ -14,7 +14,7 @@ export type GoogleFormTicketInput = {
   location: string;
   phone: string;
   extension: string;
-  requestType: string;
+  requestType: "New badge" | "Replacement badge" | "Access or PIN only" | "Other";
   details: string;
   badgeNumber: string;
   badgeName: string;
