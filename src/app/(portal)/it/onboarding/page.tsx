@@ -1,0 +1,11 @@
+import Link from "next/link";
+import { requireAgent } from "@/lib/authz";
+import { listOnboardingRequests } from "@/lib/sql/it-operations";
+import { changeOnboardingStatus } from "./actions";
+
+export default async function OnboardingPage({searchParams}:{searchParams:Promise<{error?:string;saved?:string}>}){
+ await requireAgent(); const query=await searchParams;
+ if(process.env.DATA_BACKEND!=="sql") return <p>New-hire setup is available after the SQL backend is configured. / La preparación de nuevos empleados estará disponible al configurar SQL.</p>;
+ const requests=await listOnboardingRequests();
+ return <div className="space-y-5"><div className="flex flex-wrap justify-between gap-3"><div><h1 className="text-3xl font-semibold">New-hire IT setup / Preparación de TI para nuevos empleados</h1><p className="mt-2 text-muted-foreground">Restricted to IT staff. Never store passwords here. / Solo personal de TI. No guarde contraseñas aquí.</p></div><Link href="/it/onboarding/new" className="h-fit rounded bg-primary px-4 py-2 text-primary-foreground">New setup request / Nueva solicitud</Link></div>{query.error&&<p role="alert">{query.error}</p>}{query.saved&&<p role="status">Saved / Guardado</p>}{requests.length===0&&<p>No setup requests yet. / Aún no hay solicitudes.</p>}{requests.map(row=><article key={row.id} className="space-y-3 rounded border bg-background p-5"><div className="flex flex-wrap justify-between gap-2"><h2 className="text-xl font-semibold">{row.first_name} {row.last_name}</h2><span>{row.status}</span></div><p>Start / Inicio: {row.start_date}{row.need_by_date?` · Need by / Fecha límite: ${row.need_by_date}`:""}</p><p>Needs / Necesidades: {row.requested_needs.join(", ")}</p><p>Locations / Lugares: {row.work_locations.join(", ")}</p>{row.shared_drive_access&&<p>Shared drive / Unidad compartida: {row.shared_drive_access}</p>}{row.equipment_details&&<p>Equipment / Equipo: {row.equipment_details}</p>}<p>Main contact / Contacto principal: {row.main_contact_email}</p><form action={changeOnboardingStatus} className="flex gap-2"><input type="hidden" name="id" value={row.id}/><select className="rounded border p-2" name="status" defaultValue={row.status}><option>New</option><option>In progress</option><option>Complete</option></select><button className="rounded border px-3">Update / Actualizar</button></form></article>)}</div>;
+}

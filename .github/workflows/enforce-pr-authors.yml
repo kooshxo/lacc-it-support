@@ -1,0 +1,23 @@
+name: Enforce PR authors
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close unauthorized pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "$ACTOR" != "domparrishhh" ] && [ "$ACTOR" != "kooshxo" ]; then
+            gh pr close "$PR_NUMBER" --repo "$REPOSITORY" --comment "This repository accepts pull requests from the authorized maintainers only."
+          fi

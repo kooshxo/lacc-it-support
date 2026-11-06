@@ -1,0 +1,5 @@
+import Link from 'next/link';
+import { requireAgent } from '@/lib/authz';
+import { InventoryFields } from '@/components/inventory-fields';
+import { inventoryAction } from '../actions';
+export default async function NewAsset({searchParams}:{searchParams:Promise<{error?:string}>}){await requireAgent();if(process.env.DATA_BACKEND!=='sql')return <p>SQL inventory is not enabled.</p>;const {error}=await searchParams;return <div className="mx-auto max-w-3xl space-y-5"><Link href="/inventory" className="underline">Back to inventory</Link><h1 className="text-3xl font-semibold">Register equipment</h1>{error&&<p role="alert" className="text-destructive">{error}</p>}<form action={inventoryAction} className="rounded border bg-background p-5"><input type="hidden" name="operation" value="create"/><label className="mb-4 grid gap-1">Asset code<input className="rounded border p-2" name="asset_code" required maxLength={80} placeholder="LACC-5985"/></label><InventoryFields/><button className="rounded bg-primary px-4 py-2 text-primary-foreground">Register equipment</button></form></div>;}
