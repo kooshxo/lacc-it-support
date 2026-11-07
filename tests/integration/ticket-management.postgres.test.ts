@@ -24,7 +24,7 @@ async function seed(item: Ticket) {
 describePg("SQL ticket management persistence", () => {
   beforeAll(async () => {
     const connection = new URL(url!);
-    if (!["localhost","127.0.0.1","::1"].includes(connection.hostname) || connection.pathname !== "/lacc_ticket_redesign_test") throw new Error("Refusing ticket-management integration tests outside the dedicated local lacc_ticket_redesign_test database.");
+    if (!["localhost","127.0.0.1","::1"].includes(connection.hostname) || !/^\/lacc_ticket_redesign_test(?:_[a-z0-9_]+)?$/.test(connection.pathname)) throw new Error("Refusing ticket-management integration tests outside a dedicated local lacc_ticket_redesign_test database.");
     process.env.APP_DATABASE_URL = url!;
     process.env.DATA_BACKEND = "sql";
     process.env.NOTIFICATIONS_ENABLED = "false";

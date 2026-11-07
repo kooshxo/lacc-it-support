@@ -4,8 +4,8 @@ export default async function seedTicketManagementDatabase() {
   const url = process.env.TEST_TICKETS_DATABASE_URL;
   if (!url) throw new Error("Set TEST_TICKETS_DATABASE_URL to the dedicated local ticket redesign test database.");
   const connection = new URL(url);
-  if (!["localhost", "127.0.0.1", "::1"].includes(connection.hostname) || connection.pathname !== "/lacc_ticket_redesign_test") {
-    throw new Error("Refusing to seed anything except the dedicated local lacc_ticket_redesign_test database.");
+  if (!["localhost", "127.0.0.1", "::1"].includes(connection.hostname) || !/^\/lacc_ticket_redesign_test(?:_[a-z0-9_]+)?$/.test(connection.pathname)) {
+    throw new Error("Refusing to seed anything except a dedicated local lacc_ticket_redesign_test database.");
   }
   const pool = new Pool({ connectionString: url, max: 2 });
   try {
