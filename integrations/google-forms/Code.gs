@@ -22,8 +22,8 @@ function installLaccTicketTriggers() {
   ensureRequesterNameQuestion_(form);
   ensureRequiredQuestion_(form, 'LACC work email / Correo electrónico del LACC');
   ensureRequiredQuestion_(form, 'Department / Departamento');
-  ensureRequiredQuestion_(form, 'Phone or LACC cellphone for follow-up / Teléfono de contacto');
-  ensureRequiredQuestion_(form, 'Extension number, if applicable / Número de extensión, si corresponde');
+  ensureOptionalQuestion_(form, 'Phone or LACC cellphone for follow-up / Teléfono de contacto');
+  ensureOptionalQuestion_(form, 'Extension number, if applicable / Número de extensión, si corresponde');
   ensureRequiredQuestion_(form, 'What do you need? / ¿Qué necesita?');
   ensureRequiredQuestion_(form, 'Describe your problem / Describa su problema');
   ensureRequiredQuestion_(form, 'Describe the badge or access you need, including the system or area and the reason. / Describa la credencial o el acceso que necesita, incluido el sistema o área y el motivo.');
@@ -58,6 +58,14 @@ function ensureRequiredQuestion_(form, title) {
   if (item.getType() === FormApp.ItemType.TEXT) item.asTextItem().setRequired(true);
   else if (item.getType() === FormApp.ItemType.LIST) item.asListItem().setRequired(true);
   else if (item.getType() === FormApp.ItemType.MULTIPLE_CHOICE) item.asMultipleChoiceItem().setRequired(true);
+}
+
+function ensureOptionalQuestion_(form, title) {
+  const item = form.getItems().find((candidate) => candidate.getTitle() === title);
+  if (!item) throw new Error('Optional form question is missing: ' + title);
+  if (item.getType() === FormApp.ItemType.TEXT) item.asTextItem().setRequired(false);
+  else if (item.getType() === FormApp.ItemType.LIST) item.asListItem().setRequired(false);
+  else if (item.getType() === FormApp.ItemType.MULTIPLE_CHOICE) item.asMultipleChoiceItem().setRequired(false);
 }
 
 function ensureReplacementLocationQuestion_(form) {
@@ -125,6 +133,7 @@ function retryLaccTicketSubmissions() {
 function payloadFromResponse_(form, response) {
   if (form.getId() !== LACC_FORM_EDITOR_ID) throw new Error('Unexpected Google Form source.');
   const answers = {};
+  const newHire = {};
   response.getItemResponses().forEach((itemResponse) => {
     const title = itemResponse.getItem().getTitle();
     const value = itemResponse.getResponse();
@@ -147,6 +156,15 @@ function payloadFromResponse_(form, response) {
       if (badgeName) answers.badgeName = badgeName;
     }
     else if (title.startsWith('Site / building where help is needed')) answers.location = String(value || '').trim();
+    else if (title.startsWith('New employee first name')) newHire.firstName = String(value || '').trim();
+    else if (title.startsWith('New employee last name')) newHire.lastName = String(value || '').trim();
+    else if (title.startsWith('New employee start date')) newHire.startDate = String(value || '').trim();
+    else if (title.startsWith('New employee need-by date')) newHire.needByDate = String(value || '').trim();
+    else if (title.startsWith('New employee IT needs')) newHire.needs = Array.isArray(value) ? value.map(String) : [String(value || '').trim()].filter(Boolean);
+    else if (title.startsWith('New employee work location')) newHire.locations = Array.isArray(value) ? value.map(String) : [String(value || '').trim()].filter(Boolean);
+    else if (title.startsWith('Shared-drive folders')) newHire.sharedDriveAccess = String(value || '').trim();
+    else if (title.startsWith('Equipment and main work tasks')) newHire.equipmentDetails = String(value || '').trim();
+    else if (title.startsWith('New employee LACC email')) newHire.contactEmail = String(value || '').trim();
     // The preferred PIN answer is intentionally never copied into this webhook payload.
   });
   return {
@@ -158,8 +176,68 @@ function payloadFromResponse_(form, response) {
       phone: answers.phone || '', extension: answers.extension || '',
       requestType: answers.requestType || '', details: answers.details || '', badgeNumber: answers.badgeNumber || '', badgeName: answers.badgeName || '',
       location: answers.location || '',
+      ...(answers.requestType === 'New Hire Setup' || answers.requestType === 'New Hire Setup / Preparación de nuevo empleado' ? {
+        newHire: {
+          firstName: newHire.firstName || '', lastName: newHire.lastName || '', startDate: newHire.startDate || '',
+          needByDate: newHire.needByDate || '', needs: newHire.needs || [], locations: newHire.locations || [],
+          sharedDriveAccess: newHire.sharedDriveAccess || '', equipmentDetails: newHire.equipmentDetails || '',
+          contactEmail: newHire.contactEmail || answers.email || '',
+        },
+      } : {}),
     },
   };
+}
+
+/**
+ * Read-only recovery planner. It never calls deliver_(), changes responses, or
+ * changes production. Set LACC_RECOVERY_EXCLUDE_RESPONSE_IDS to a comma-separated
+ * list containing the boss test and the already-imported controlled test before
+ * running this function. The returned rows are the only rows eligible for a
+ * later, manually approved replay.
+ */
+function planLaccRecovery_(form) {
+  const excluded = new Set((PropertiesService.getScriptProperties().getProperty('LACC_RECOVERY_EXCLUDE_RESPONSE_IDS') || '')
+    .split(',').map((value) => value.trim()).filter(Boolean));
+  return form.getResponses().map((response) => {
+    const payload = payloadFromResponse_(form, response);
+    const excludedResponse = excluded.has(payload.responseId);
+    return {
+      responseId: payload.responseId,
+      submittedAt: payload.submittedAt,
+      requestType: payload.answers.requestType,
+      excluded: excludedResponse,
+      action: excludedResponse ? 'exclude' : 'would-replay-after-approval',
+    };
+  });
+}
+
+function dryRunLaccRecovery() {
+  const form = FormApp.openById(LACC_FORM_EDITOR_ID);
+  const rows = planLaccRecovery_(form);
+  console.log(JSON.stringify({ dryRun: true, sends: 0, rows: rows }));
+  return rows;
+}
+
+/**
+ * Approval-gated recovery. This function is intentionally not called by any
+ * trigger. The webhook's original responseId is the existing production
+ * idempotency key: a response already imported returns duplicate=true/HTTP 200.
+ * It stops on the first non-success response and never bulk-replays.
+ */
+function recoverLaccSubmissionsAfterApproval() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('LACC_RECOVERY_APPROVED') !== 'true') throw new Error('Set LACC_RECOVERY_APPROVED=true only after reviewing dry-run output.');
+  const form = FormApp.openById(LACC_FORM_EDITOR_ID);
+  const rows = planLaccRecovery_(form).filter((row) => row.action === 'would-replay-after-approval');
+  const results = [];
+  for (const row of rows) {
+    const response = form.getResponses().find((candidate) => candidate.getId() === row.responseId);
+    if (!response) throw new Error('Response disappeared before recovery: ' + row.responseId);
+    const result = deliver_(payloadFromResponse_(form, response));
+    results.push({ responseId: row.responseId, status: result.status, duplicate: result.status === 200 });
+    if (!result.ok) throw new Error('Recovery stopped after response ' + row.responseId + ' returned HTTP ' + result.status);
+  }
+  return results;
 }
 
 function deliver_(payload) {
