@@ -12,11 +12,20 @@ import { AuthorizationError } from "@/lib/excel/repository";
 import { redirect } from "next/navigation";
 import { describeTicketEvent, ticketEventActor } from "@/lib/domain/ticket-activity";
 import { effectiveCompletedBy } from "@/lib/domain/resolution";
+import { createServerCorrelationId, timedServerOperation } from "@/lib/server-timing";
 
 export default async function TicketPage({ params, searchParams }: { params: Promise<{ ticketNumber: string }>; searchParams: Promise<{ created?: string }> }) {
-  const [{ ticketNumber }, { created }, employee] = await Promise.all([params, searchParams, requireEmployee()]);
+  const correlationId = createServerCorrelationId();
+  const [{ ticketNumber }, { created }, employee] = await Promise.all([
+    timedServerOperation("/requests/[ticketNumber]", "params", correlationId, () => params),
+    timedServerOperation("/requests/[ticketNumber]", "searchParams", correlationId, () => searchParams),
+    timedServerOperation("/requests/[ticketNumber]", "requireEmployee", correlationId, () => requireEmployee()),
+  ]);
   let detail;
-  try { detail = await getRepository().getTicketByNumber(ticketNumber, employee); } catch (error) { if (error instanceof AuthorizationError) redirect("/access-denied"); throw error; }
+  try {
+    const repository = await timedServerOperation("/requests/[ticketNumber]", "getRepository", correlationId, async () => getRepository());
+    detail = await timedServerOperation("/requests/[ticketNumber]", "getTicketByNumber", correlationId, () => repository.getTicketByNumber(ticketNumber, employee));
+  } catch (error) { if (error instanceof AuthorizationError) redirect("/access-denied"); throw error; }
   if (!detail) notFound();
   const { ticket } = detail;
   const agent = employee.role !== "EMPLOYEE";
