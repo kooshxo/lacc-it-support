@@ -9,7 +9,6 @@ import { getRepository } from "@/lib/excel";
 import type { Ticket } from "@/lib/domain/models";
 import { countTicketsSolvedWithin, effectiveCompletedBy, isTicketResolved } from "@/lib/domain/resolution";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
-import { createServerCorrelationId, timedServerOperation } from "@/lib/server-timing";
 
 const display = (value: string | undefined) => value?.trim() || "—";
 const age = (createdAt: string) => {
@@ -21,11 +20,9 @@ const age = (createdAt: string) => {
 const isSolved = (ticket: Ticket) => isTicketResolved(ticket);
 
 export default async function ItPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const correlationId = createServerCorrelationId();
-  await timedServerOperation("/it", "requireAgent", correlationId, () => requireAgent());
-  const filters = await timedServerOperation("/it", "searchParams", correlationId, () => searchParams);
-  const repository = await timedServerOperation("/it", "getRepository", correlationId, async () => getRepository());
-  const allTickets = await timedServerOperation("/it", "listTickets", correlationId, () => repository.listTickets());
+  await requireAgent();
+  const filters = await searchParams;
+  const allTickets = await getRepository().listTickets();
   const state = filters.state ?? "RECEIVED";
   const allView = state === "ALL";
   const scopedTickets = state === "SOLVED" || allView ? allTickets : allTickets.filter((ticket) => !isSolved(ticket));
