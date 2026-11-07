@@ -191,22 +191,33 @@ function payloadFromResponse_(form, response) {
 /**
  * Read-only recovery planner. It never calls deliver_(), changes responses, or
  * changes production. Set LACC_RECOVERY_EXCLUDE_RESPONSE_IDS to a comma-separated
- * list containing the boss test and the already-imported controlled test before
- * running this function. The returned rows are the only rows eligible for a
- * later, manually approved replay.
+ * list containing the boss test and the already-imported controlled test, plus
+ * LACC_RECOVERY_ALLOWLIST_RESPONSE_IDS containing exactly the three approved
+ * legitimate response IDs. Production status must be supplied separately by
+ * an authorized read-only lookup in LACC_RECOVERY_EXISTING_RESPONSE_IDS or
+ * LACC_RECOVERY_MISSING_RESPONSE_IDS. Without that evidence every candidate
+ * is reported as unknown and cannot be replayed.
  */
 function planLaccRecovery_(form) {
-  const excluded = new Set((PropertiesService.getScriptProperties().getProperty('LACC_RECOVERY_EXCLUDE_RESPONSE_IDS') || '')
+  const csv = (name) => new Set((PropertiesService.getScriptProperties().getProperty(name) || '')
     .split(',').map((value) => value.trim()).filter(Boolean));
+  const excluded = csv('LACC_RECOVERY_EXCLUDE_RESPONSE_IDS');
+  const allowlisted = csv('LACC_RECOVERY_ALLOWLIST_RESPONSE_IDS');
+  const existing = csv('LACC_RECOVERY_EXISTING_RESPONSE_IDS');
+  const missing = csv('LACC_RECOVERY_MISSING_RESPONSE_IDS');
   return form.getResponses().map((response) => {
     const payload = payloadFromResponse_(form, response);
     const excludedResponse = excluded.has(payload.responseId);
+    const allowlistedResponse = allowlisted.has(payload.responseId);
+    const status = excludedResponse ? 'excluded' : existing.has(payload.responseId) ? 'existing' : missing.has(payload.responseId) ? 'missing' : 'unknown';
     return {
       responseId: payload.responseId,
       submittedAt: payload.submittedAt,
       requestType: payload.answers.requestType,
       excluded: excludedResponse,
-      action: excludedResponse ? 'exclude' : 'would-replay-after-approval',
+      allowlisted: allowlistedResponse,
+      status: allowlistedResponse ? status : (status === 'excluded' ? 'excluded' : 'unknown'),
+      action: allowlistedResponse && status === 'missing' ? 'would-replay-after-approval' : 'hold',
     };
   });
 }
@@ -229,6 +240,7 @@ function recoverLaccSubmissionsAfterApproval() {
   if (props.getProperty('LACC_RECOVERY_APPROVED') !== 'true') throw new Error('Set LACC_RECOVERY_APPROVED=true only after reviewing dry-run output.');
   const form = FormApp.openById(LACC_FORM_EDITOR_ID);
   const rows = planLaccRecovery_(form).filter((row) => row.action === 'would-replay-after-approval');
+  if (!rows.length) throw new Error('No explicitly allowlisted response is proven missing by an authorized production lookup.');
   const results = [];
   for (const row of rows) {
     const response = form.getResponses().find((candidate) => candidate.getId() === row.responseId);
