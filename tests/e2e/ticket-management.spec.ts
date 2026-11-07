@@ -24,6 +24,9 @@ test("staff can edit, reload, solve, and reopen a ticket without assignment or c
   await page.getByLabel("Priority").selectOption("P1");
   await page.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByRole("status").getByText("Changes saved.")).toBeVisible();
+  await expect(page.getByLabel("Status")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit Ticket" })).toBeVisible();
+  await expect(page.locator("dl").getByText("P1 Critical")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Priority")).toHaveValue("P1");
   await expect(page.getByLabel("Status")).toHaveValue("IN_PROGRESS");
@@ -35,7 +38,10 @@ test("staff can edit, reload, solve, and reopen a ticket without assignment or c
   await page.getByLabel("Internal IT Notes").fill("Confirmed the device reconnects after sleep.");
   await page.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByRole("status").getByText("Changes saved.")).toBeVisible();
-  await expect(page.getByLabel("Status")).toHaveValue("RESOLVED");
+  await expect(page.getByLabel("Status")).toHaveCount(0);
+  await expect(page.locator("dl").getByText("Solved")).toBeVisible();
+  await expect(page.locator("dl").getByText("Reinstalled the wireless profile.")).toBeVisible();
+  await expect(page.getByLabel("Internal IT note history").getByText("Confirmed the device reconnects after sleep.")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Status")).toHaveValue("RESOLVED");
   await expect(page.getByLabel("Completed By")).toHaveValue("Tech QA");
@@ -45,7 +51,8 @@ test("staff can edit, reload, solve, and reopen a ticket without assignment or c
   await page.getByLabel("Status").selectOption("IN_PROGRESS");
   await page.getByRole("button", { name: "Save Changes" }).click();
   await expect(page.getByRole("status").getByText("Changes saved.")).toBeVisible();
-  await expect(page.getByLabel("Status")).toHaveValue("IN_PROGRESS");
+  await expect(page.getByLabel("Status")).toHaveCount(0);
+  await expect(page.locator("dl").getByText("In Progress")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Status")).toHaveValue("IN_PROGRESS");
 });

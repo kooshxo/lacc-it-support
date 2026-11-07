@@ -6,6 +6,7 @@ import { Pool } from "pg";
 import type { Employee, Ticket } from "@/lib/domain/models";
 import { ConflictError } from "@/lib/excel/repository";
 import { SqlTicketRepository } from "@/lib/sql/repository";
+import { createOnboardingRequest } from "@/lib/sql/it-operations";
 import { effectiveCompletedBy, isTicketResolved } from "@/lib/domain/resolution";
 
 const url = process.env.TEST_TICKETS_DATABASE_URL;
@@ -33,11 +34,14 @@ describePg("SQL ticket management persistence", () => {
       CREATE TABLE IF NOT EXISTS lacc_ticket_events(uid text PRIMARY KEY,ticket_uid text NOT NULL REFERENCES lacc_tickets(uid),operation_uid text NOT NULL UNIQUE,data jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
       CREATE TABLE IF NOT EXISTS lacc_messages(uid text PRIMARY KEY,ticket_uid text NOT NULL REFERENCES lacc_tickets(uid),operation_uid text NOT NULL UNIQUE,data jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
       CREATE TABLE IF NOT EXISTS lacc_attachments(uid text PRIMARY KEY,ticket_uid text NOT NULL REFERENCES lacc_tickets(uid),filename text NOT NULL,mime_type text NOT NULL,size integer NOT NULL,uploaded_by text NOT NULL,uploaded_at timestamptz NOT NULL,content bytea);
+      CREATE TABLE IF NOT EXISTS it_onboarding_requests(id text PRIMARY KEY,first_name text NOT NULL,last_name text NOT NULL,start_date date NOT NULL,requested_needs jsonb NOT NULL DEFAULT '[]'::jsonb,work_locations jsonb NOT NULL DEFAULT '[]'::jsonb,shared_drive_access text NOT NULL DEFAULT '',equipment_details text NOT NULL DEFAULT '',need_by_date date,main_contact_email text NOT NULL,requested_by text NOT NULL,status text NOT NULL DEFAULT 'New',created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE IF NOT EXISTS it_operations_audit(id text PRIMARY KEY,entity_type text NOT NULL,entity_id text NOT NULL,actor_uid text NOT NULL,action text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
     `);
   });
 
   beforeEach(async () => {
     await pool!.query("TRUNCATE lacc_messages,lacc_ticket_events,lacc_attachments,lacc_tickets CASCADE");
+    await pool!.query("TRUNCATE it_operations_audit,it_onboarding_requests CASCADE");
   });
 
   afterAll(async () => { await pool?.end(); });
@@ -97,5 +101,20 @@ describePg("SQL ticket management persistence", () => {
     expect(failed?.status === "rejected" && failed.reason).toBeInstanceOf(ConflictError);
     const persisted = (await pool!.query<{data:Ticket}>("SELECT data FROM lacc_tickets WHERE uid=$1",[item.ticketUid])).rows[0].data;
     expect(persisted.version).toBe(2);
+  });
+
+  it("deduplicates a retried signed New Hire Setup request and writes one audit event", async () => {
+    const input = {
+      first_name: "Example", last_name: "New Hire", start_date: "2026-12-01",
+      requested_needs: ["Computer account / Cuenta de computadora"], work_locations: ["Remote / Remoto"],
+      shared_drive_access: "", equipment_details: "", need_by_date: null, main_contact_email: "employee@thelatincenter.org",
+    };
+    const first = await createOnboardingRequest(input, "google-form:stable-response", "stable-response-id");
+    const retry = await createOnboardingRequest(input, "google-form:stable-response", "stable-response-id");
+
+    expect(first).toEqual({ id: "stable-response-id", duplicate: false });
+    expect(retry).toEqual({ id: "stable-response-id", duplicate: true });
+    expect((await pool!.query("SELECT count(*)::int AS n FROM it_onboarding_requests")).rows[0].n).toBe(1);
+    expect((await pool!.query("SELECT count(*)::int AS n FROM it_operations_audit WHERE entity_type='onboarding'")).rows[0].n).toBe(1);
   });
 });

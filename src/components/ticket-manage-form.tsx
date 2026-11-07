@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateTicketAction, type ActionState } from "@/app/(portal)/actions";
 import type { Ticket, TicketMessage } from "@/lib/domain/models";
@@ -16,8 +16,10 @@ type TicketFormAction = (formData: FormData) => void;
 
 export function TicketManageForm({ ticket, internalNotes }: { ticket: Ticket; internalNotes: TicketMessage[] }) {
   const router = useRouter();
+  const [editingFromVersion, setEditingFromVersion] = useState<number | null>(null);
   const action = useMemo(() => updateTicketAction.bind(null, ticket.ticketUid, ticket.ticketNumber), [ticket.ticketUid, ticket.ticketNumber]);
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
+  const editing = state.savedVersion === undefined || editingFromVersion === state.savedVersion;
 
   useEffect(() => {
     if (state.savedVersion !== undefined && state.savedVersion > ticket.version) router.refresh();
@@ -28,6 +30,23 @@ export function TicketManageForm({ ticket, internalNotes }: { ticket: Ticket; in
     : ticket;
   const version = Math.max(ticket.version, state.savedVersion ?? ticket.version);
   const hydratedTicket = { ...persisted, version };
+
+  if (!editing) {
+    const status = canonicalTicketStatus(hydratedTicket.status);
+    const statusLabel = status === "NEW" ? "Received" : status === "IN_PROGRESS" ? "In Progress" : "Solved";
+    const priorityLabel = ({ P1: "P1 Critical", P2: "P2 High", P3: "P3 Normal", P4: "P4 Low" } as const)[hydratedTicket.priority];
+    return <div className="space-y-4">
+      <p className="text-sm text-emerald-800" role="status">Changes saved.</p>
+      <dl className="grid gap-3 text-sm">
+        <div><dt className="text-muted-foreground">Status</dt><dd className="font-medium">{statusLabel}</dd></div>
+        <div><dt className="text-muted-foreground">Priority</dt><dd className="font-medium">{priorityLabel}</dd></div>
+        <div><dt className="text-muted-foreground">Completed By</dt><dd className="font-medium">{effectiveCompletedBy(hydratedTicket) || "—"}</dd></div>
+        <div><dt className="text-muted-foreground">Resolution Details</dt><dd className="whitespace-pre-wrap font-medium">{hydratedTicket.resolutionNotes || "—"}</dd></div>
+      </dl>
+      {internalNotes.length > 0 && <div className="grid gap-2"><h3 className="text-sm font-medium">Internal IT Notes</h3><ul className="grid gap-2 rounded-md border bg-muted/20 p-3" aria-label="Internal IT note history">{internalNotes.map((note) => <li key={note.messageUid} className="border-b pb-2 last:border-b-0 last:pb-0"><div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span>{note.authorName === "IT Staff" ? "IT staff (shared account)" : note.authorName}</span><time dateTime={note.createdAt}>{new Date(note.createdAt).toLocaleString()}</time></div><p className="mt-1 whitespace-pre-wrap text-sm">{note.body}</p></li>)}</ul></div>}
+      <Button type="button" variant="outline" className="w-full" onClick={() => setEditingFromVersion(state.savedVersion ?? null)}>Edit Ticket</Button>
+    </div>;
+  }
 
   return <TicketManageFields
     key={`${ticket.ticketUid}:${version}`}
@@ -46,9 +65,19 @@ function TicketManageFields({ action, ticket, internalNotes, state, pending }: {
   state: ActionState;
   pending: boolean;
 }) {
+  const submissionInFlight = useRef(false);
+  useEffect(() => {
+    if (!pending) submissionInFlight.current = false;
+  }, [pending]);
+
   return <form action={action} onSubmit={(event)=>{
+    if (submissionInFlight.current) {
+      event.preventDefault();
+      return;
+    }
+    submissionInFlight.current = true;
     const operationUid = event.currentTarget.elements.namedItem("operationUid");
-    if (operationUid instanceof HTMLInputElement) operationUid.value = crypto.randomUUID();
+    if (operationUid instanceof HTMLInputElement && !operationUid.value) operationUid.value = crypto.randomUUID();
   }} className="grid min-w-0 gap-5">
     <input type="hidden" name="operationUid" value=""/>
     <input type="hidden" name="expectedVersion" value={ticket.version}/>

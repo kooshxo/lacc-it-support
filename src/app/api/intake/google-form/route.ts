@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { createGoogleFormTicket, type GoogleFormTicketInput } from "@/lib/sql/google-form-intake";
+import { onboardingRequestSchema } from "@/lib/domain/onboarding";
+import { createGoogleFormTicket, googleFormOperationUid, type GoogleFormTicketInput } from "@/lib/sql/google-form-intake";
+import { createOnboardingRequest } from "@/lib/sql/it-operations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,12 +26,17 @@ const payloadSchema = z.object({
       "Replacement badge / Reemplazo de credencial",
       "Access help / Ayuda con el acceso",
       "Other / Otro",
+      "New Hire Setup",
+      "New Hire Setup / Preparación de nuevo empleado",
+      "New Employee Setup",
+      "New Employee Setup / Preparación de nuevo empleado",
       "New badge",
       "Replacement badge",
       "Access or PIN only",
       "Access / PIN only",
     ]),
     details: answer(4000),
+    newHire: onboardingRequestSchema.optional(),
     badgeNumber: answer(80),
     badgeName: answer(160),
     location: answer(160),
@@ -77,6 +84,32 @@ export async function POST(request: Request) {
   if (!parsed.success) return Response.json({ error: "Form fields are invalid or incomplete." }, { status: 422 });
   if (parsed.data.formId !== sourceFormId) return Response.json({ error: "This form is not authorized for ticket intake." }, { status: 403 });
   const answers = parsed.data.answers;
+  const isNewHire = [
+    "New Hire Setup",
+    "New Hire Setup / Preparación de nuevo empleado",
+    "New Employee Setup",
+    "New Employee Setup / Preparación de nuevo empleado",
+  ].includes(answers.requestType);
+  if (isNewHire !== Boolean(answers.newHire)) return Response.json({ error: "New Hire Setup details are missing or do not match the selected request type." }, { status: 422 });
+  if (isNewHire && answers.newHire) {
+    try {
+      const operationUid = googleFormOperationUid(parsed.data.formId, parsed.data.responseId);
+      const result = await createOnboardingRequest({
+        first_name: answers.newHire.firstName,
+        last_name: answers.newHire.lastName,
+        start_date: answers.newHire.startDate,
+        requested_needs: answers.newHire.needs,
+        work_locations: answers.newHire.locations,
+        shared_drive_access: answers.newHire.sharedDriveAccess,
+        equipment_details: answers.newHire.equipmentDetails,
+        need_by_date: answers.newHire.needByDate || null,
+        main_contact_email: (answers.newHire.contactEmail || answers.email).toLowerCase(),
+      }, `google-form:${operationUid}`, operationUid);
+      return Response.json({ ok: true, requestId: result.id, duplicate: result.duplicate }, { status: result.duplicate ? 200 : 201, headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return Response.json({ error: "New Hire Setup intake is temporarily unavailable." }, { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } });
+    }
+  }
   const requesterName = answers.name || answers.email.toLowerCase();
   const requestTypeMap: Record<string, GoogleFormTicketInput["requestType"]> = {
     "New badge / Credencial nueva": "New badge",

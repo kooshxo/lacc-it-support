@@ -25,15 +25,20 @@ export async function listOnboardingRequests() {
   return rows;
 }
 
-export async function createOnboardingRequest(input: Omit<OnboardingRequest,"id"|"requested_by"|"status"|"created_at">, actorUid: string) {
-  const id = randomUUID();
+export async function createOnboardingRequest(input: Omit<OnboardingRequest,"id"|"requested_by"|"status"|"created_at">, actorUid: string, requestId?: string) {
+  const id = requestId ?? randomUUID();
   const client = await database().connect();
   try {
     await client.query("BEGIN");
-    await client.query(`INSERT INTO it_onboarding_requests(id,first_name,last_name,start_date,requested_needs,work_locations,shared_drive_access,equipment_details,need_by_date,main_contact_email,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [id,input.first_name,input.last_name,input.start_date,JSON.stringify(input.requested_needs),JSON.stringify(input.work_locations),input.shared_drive_access,input.equipment_details,input.need_by_date,input.main_contact_email,actorUid]);
-    await client.query(`INSERT INTO it_operations_audit(id,entity_type,entity_id,actor_uid,action) VALUES($1,'onboarding',$2,$3,'created')`,[randomUUID(),id,actorUid]);
+    const inserted = await client.query<{ id: string }>(`INSERT INTO it_onboarding_requests(id,first_name,last_name,start_date,requested_needs,work_locations,shared_drive_access,equipment_details,need_by_date,main_contact_email,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO NOTHING RETURNING id`, [id,input.first_name,input.last_name,input.start_date,JSON.stringify(input.requested_needs),JSON.stringify(input.work_locations),input.shared_drive_access,input.equipment_details,input.need_by_date,input.main_contact_email,actorUid]);
+    if (inserted.rowCount) {
+      await client.query(`INSERT INTO it_operations_audit(id,entity_type,entity_id,actor_uid,action) VALUES($1,'onboarding',$2,$3,'created')`,[randomUUID(),id,actorUid]);
+    } else {
+      const existing = await client.query<{ requested_by: string }>(`SELECT requested_by FROM it_onboarding_requests WHERE id=$1 FOR UPDATE`,[id]);
+      if (existing.rows[0]?.requested_by !== actorUid) throw new Error("Onboarding request identity conflict.");
+    }
     await client.query("COMMIT");
-    return id;
+    return { id, duplicate: !inserted.rowCount };
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
 

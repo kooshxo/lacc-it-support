@@ -20,7 +20,7 @@ export type GoogleFormTicketInput = {
   badgeName: string;
 };
 
-function operationUid(formId: string, responseId: string) {
+export function googleFormOperationUid(formId: string, responseId: string) {
   const bytes = createHash("sha256").update(`${formId}\0${responseId}`).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x50;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -30,7 +30,7 @@ function operationUid(formId: string, responseId: string) {
 
 export async function createGoogleFormTicket(input: GoogleFormTicketInput) {
   const uid = randomUUID();
-  const operation = operationUid(input.formId, input.responseId);
+  const operation = googleFormOperationUid(input.formId, input.responseId);
   const submitted = new Date(input.submittedAt);
   const createdAt = Number.isNaN(submitted.valueOf()) ? new Date().toISOString() : submitted.toISOString();
   const details = input.details.trim() || "No additional details were provided.";

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "./ui/textarea";
 
 const initial: ActionState = {};
-const categories = ["Computer / Laptop", "Password / Login", "Email", "Microsoft Office", "Printer / Scanner", "Internet / Wi-Fi", "Phone", "Software", "Access / Permissions", "Equipment", "Website", "New Employee Setup", "Other"];
+const categories = ["Computer / Laptop", "Password / Login", "Email", "Microsoft Office", "Printer / Scanner", "Internet / Wi-Fi", "Phone", "Software", "Access / Permissions", "Equipment", "Website", "New Hire Setup", "Other"];
 
 export function TicketForm({ defaultLocation }: { defaultLocation: string }) {
   const [state, action, pending] = useActionState(createTicketAction, initial);
