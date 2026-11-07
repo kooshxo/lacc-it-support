@@ -9,6 +9,7 @@ import { getRepository } from "@/lib/excel";
 import type { Ticket } from "@/lib/domain/models";
 import { countTicketsSolvedWithin, effectiveCompletedBy, isTicketResolved } from "@/lib/domain/resolution";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
+import { distinctTrimmedStrings } from "@/lib/domain/filter-options";
 
 const display = (value: string | undefined) => value?.trim() || "—";
 const age = (createdAt: string) => {
@@ -28,9 +29,9 @@ export default async function ItPage({ searchParams }: { searchParams: Promise<R
   const scopedTickets = state === "SOLVED" || allView ? allTickets : allTickets.filter((ticket) => !isSolved(ticket));
   const solvedLast14Days = countTicketsSolvedWithin(allTickets);
   const completedByOptions = [...new Set(allTickets.map(effectiveCompletedBy).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const sites = [...new Set(scopedTickets.map((ticket) => ticket.locationUid.trim()).filter(Boolean))].sort();
-  const departments = [...new Set(scopedTickets.map((ticket) => ticket.departmentUid.trim()).filter(Boolean))].sort();
-  const categories = [...new Set(scopedTickets.map((ticket) => ticket.category.trim()).filter(Boolean))].sort();
+  const sites = distinctTrimmedStrings(scopedTickets.map((ticket) => ticket.locationUid));
+  const departments = distinctTrimmedStrings(scopedTickets.map((ticket) => ticket.departmentUid));
+  const categories = distinctTrimmedStrings(scopedTickets.map((ticket) => ticket.category));
   const query = filters.q?.toLowerCase().trim();
   const tickets = scopedTickets.filter((ticket) => {
     const completedBy = effectiveCompletedBy(ticket);
