@@ -1,4 +1,4 @@
-/** Initial approved technician choices for spreadsheet column P. */
+/** Compatibility fallback for non-Google ticket backends. Google uses native Sheet validation. */
 export const completedByOptions = ["Duane", "Jose"] as const;
 export type CompletedBy = (typeof completedByOptions)[number];
 
