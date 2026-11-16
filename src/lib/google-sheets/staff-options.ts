@@ -1,11 +1,10 @@
 import "server-only";
-import { readGoogleSheetStaffValidationOptions, readGoogleSheetValidationOptions } from "./client";
-const historicalSpreadsheetId = "1pDvb5W1FajPdE4paro-AzJDfr9mI2lCgNad8GXH34EM";
+import { readGoogleSheetStaffValidationOptions, readGoogleSheetValues } from "./client";
 export async function readGoogleSheetStaffOptions(): Promise<string[]> {
   try {
-    const live = await readGoogleSheetStaffValidationOptions();
-    const historical = await readGoogleSheetValidationOptions(historicalSpreadsheetId, "IT support request!R1:R4433");
-    return [...new Set([...live, ...historical].filter((name) => !/^tbd$/i.test(name) && !/^staff working the request/i.test(name)))].sort((a, b) => a.localeCompare(b));
-  }
-  catch { return []; }
+    const validation = await readGoogleSheetStaffValidationOptions();
+    const values = await readGoogleSheetValues("Q2:Q1000");
+    const observed = values.flat().filter((value): value is string => typeof value === "string");
+    return [...new Set([...validation, ...observed].map((name) => name.trim()).filter((name) => name && !/^tbd$/i.test(name)))].sort((a, b) => a.localeCompare(b));
+  } catch { return []; }
 }
