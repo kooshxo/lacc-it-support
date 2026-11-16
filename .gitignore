@@ -1,3 +1,4 @@
 .env.local
 .env.*.local
 .env.google-sheets-test.local
+.vercel
