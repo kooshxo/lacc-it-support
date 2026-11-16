@@ -91,6 +91,48 @@ function ensureTerminalSection_(form, title) {
   section.asPageBreakItem().setGoToPage(FormApp.PageNavigationType.SUBMIT);
 }
 
+/** Installable spreadsheet onEdit handler for the synthetic/operational TICKETS tab. */
+function syncLaccTicketEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== 'TICKETS' || e.range.getRow() < 2) return;
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  try {
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(h => String(h).trim().toLowerCase());
+    const col = (name) => headers.indexOf(name) + 1;
+    const resolved = col('resolved ?');
+    const staff = col('staff resolved');
+    const status = col('status');
+    const resolvedAt = col('resolved at');
+    const resolvedAtIso = col('resolved at iso');
+    const updatedAt = col('last updated at');
+    const ticketId = col('ticket id');
+    const notes = col('resolution details');
+    if (!resolved || !staff || !status || !resolvedAt || !updatedAt || !ticketId) throw new Error('TICKETS metadata headers are incomplete.');
+    const row = e.range.getRow();
+    const values = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+    const technician = String(values[staff - 1] || '').trim();
+    const resolvedValue = String(values[resolved - 1] || '').trim().toLowerCase();
+    const isResolved = ['true', 'yes', '1'].includes(resolvedValue);
+    if (isResolved && (!technician || /^tbd$/i.test(technician))) {
+      sheet.getRange(row, resolved).setValue(false);
+      throw new Error('A valid technician is required before resolving a ticket.');
+    }
+    const now = new Date();
+    const priorStatus = String(values[status - 1] || '').trim();
+    const priorResolvedAt = String(values[resolvedAt - 1] || '').trim();
+    sheet.getRange(row, status).setValue(isResolved ? 'RESOLVED' : (priorStatus === 'RESOLVED' ? 'IN_PROGRESS' : priorStatus || 'NEW'));
+    if (isResolved && !priorResolvedAt) {
+      sheet.getRange(row, resolvedAt).setValue(Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/Detroit', 'MM/dd/yyyy h:mm a z'));
+      if (resolvedAtIso) sheet.getRange(row, resolvedAtIso).setValue(now.toISOString());
+    }
+    if (!isResolved) sheet.getRange(row, resolvedAt).setValue(priorResolvedAt);
+    sheet.getRange(row, updatedAt).setValue(now.toISOString());
+    if (notes) sheet.getRange(row, notes).setValue(values[notes - 1] || '');
+  } finally { lock.releaseLock(); }
+}
+
 function laccOnFormSubmit(event) {
   if (!event || !event.response) throw new Error('Expected a Google Forms submit event.');
   const payload = payloadFromResponse_(event.source, event.response);

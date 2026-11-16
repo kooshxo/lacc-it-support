@@ -35,7 +35,7 @@ function columns(headers: unknown[]): Columns {
     site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("requester full name"), false),
     resolved: find((v) => v.startsWith("resolved"), false), staff: find((v) => v.startsWith("staff resolved"), false),
     ticketId: find((v) => v === "ticket id", false), status: find((v) => v === "status", false),
-    resolvedAt: find((v) => v === "resolved at", false), resolution: find((v) => v === "resolution details", false), updatedAt: find((v) => v === "last updated at", false),
+    resolvedAt: find((v) => v === "resolved at", false), resolvedAtIso: find((v) => v === "resolved at iso", false), resolution: find((v) => v === "resolution details", false), updatedAt: find((v) => v === "last updated at", false),
   };
 }
 
@@ -49,7 +49,7 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
   const needs = field(row, c.category);
   const solved = field(row, c.resolved);
   const status = field(row, c.status);
-  const resolvedAt = field(row, c.resolvedAt);
+  const resolvedAt = field(row, c.resolvedAtIso) || field(row, c.resolvedAt);
   const resolutionNotes = field(row, c.resolution);
   const staff = field(row, c.staff);
   const ticket: IntakeTicket = {
@@ -130,6 +130,7 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     const updates: Array<[string, string]> = [[columnLetter(c.status), nextStatus], [columnLetter(c.updatedAt), now]];
     if (nextStatus === "RESOLVED") {
       updates.push([columnLetter(c.resolved), "TRUE"], [columnLetter(c.staff), staff], [columnLetter(c.resolvedAt), now]);
+      if (c.resolvedAtIso !== undefined) updates.push([columnLetter(c.resolvedAtIso), now]);
     } else {
       updates.push([columnLetter(c.resolved), "FALSE"], [columnLetter(c.resolvedAt), ""]);
       if (input.completedBy !== undefined) updates.push([columnLetter(c.staff), staff]);
