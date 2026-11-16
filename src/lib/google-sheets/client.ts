@@ -94,7 +94,22 @@ export async function readGoogleSheetValidationOptions(id: string, range: string
 }
 
 export async function readGoogleSheetStaffValidationOptions(): Promise<string[]> {
-  return readGoogleSheetValidationOptions(spreadsheetId(), `${sheetName()}!Q1:Q1000`);
+  const response = await request("?fields=sheets(properties(title),tables(tableId,range,columnProperties(columnName,columnIndex,columnType,dataValidationRule(condition(type,values(userEnteredValue))))))");
+  const payload = await response.json() as { sheets?: Array<{ properties?: { title?: string }; tables?: Array<{ columnProperties?: Array<{ columnName?: string; columnType?: string; dataValidationRule?: { condition?: { type?: string; values?: Array<{ userEnteredValue?: string }> } } }> }> }> };
+  const options = new Set<string>();
+  for (const sheet of payload.sheets ?? []) {
+    if (sheet.properties?.title !== sheetName()) continue;
+    for (const table of sheet.tables ?? []) {
+      for (const column of table.columnProperties ?? []) {
+        if (column.columnName?.trim().toLowerCase() !== "staff resolved") continue;
+        if (column.columnType !== "DROPDOWN" || column.dataValidationRule?.condition?.type !== "ONE_OF_LIST") continue;
+        for (const value of column.dataValidationRule.condition.values ?? []) {
+          if (value.userEnteredValue?.trim()) options.add(value.userEnteredValue.trim());
+        }
+      }
+    }
+  }
+  return [...options];
 }
 
 export async function readGoogleSheetIntakeRows() {
