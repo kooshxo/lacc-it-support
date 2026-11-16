@@ -28,6 +28,17 @@ async function accessToken() {
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
+const rowLocks = new Map<string, Promise<void>>();
+
+async function withRowLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = rowLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  rowLocks.set(key, current);
+  await previous;
+  try { return await operation(); }
+  finally { release(); if (rowLocks.get(key) === current) rowLocks.delete(key); }
+}
 
 async function request(path: string, init: RequestInit = {}) {
   const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId())}${path}`, {
@@ -77,24 +88,26 @@ export async function readGoogleSheetIntakeTable() {
 }
 
 export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>, expected?: { timestamp: string; email: string; ticketId?: string }) {
-  if (expected) {
-    const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Q${row}`)}`);
-    const current = ((await currentResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
-    const currentTimestamp = String(current[0] ?? "").trim();
-    const currentEmail = String(current[1] ?? "").trim().toLowerCase();
-    const currentTicketId = String(current[16] ?? "").trim();
-    const expectedTimestamp = new Date(expected.timestamp).getTime();
-    const actualTimestamp = new Date(currentTimestamp).getTime();
-    if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId)) {
-      throw new WorkbookUnavailableError("The spreadsheet row changed identity; refresh before saving.");
+  return withRowLock(`${spreadsheetId()}:${sheetName()}:${row}`, async () => {
+    if (expected) {
+      const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Q${row}`)}`);
+      const current = ((await currentResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
+      const currentTimestamp = String(current[0] ?? "").trim();
+      const currentEmail = String(current[1] ?? "").trim().toLowerCase();
+      const currentTicketId = String(current[16] ?? "").trim();
+      const expectedTimestamp = new Date(expected.timestamp).getTime();
+      const actualTimestamp = new Date(currentTimestamp).getTime();
+      if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId)) {
+        throw new WorkbookUnavailableError("The spreadsheet row changed identity; refresh before saving.");
+      }
     }
-  }
-  await request("/values:batchUpdate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      valueInputOption: "USER_ENTERED",
-      data: updates.map(([column, value]) => ({ range: `${sheetName()}!${column}${row}`, values: [[value]] })),
-    }),
+    await request("/values:batchUpdate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        valueInputOption: "USER_ENTERED",
+        data: updates.map(([column, value]) => ({ range: `${sheetName()}!${column}${row}`, values: [[value]] })),
+      }),
+    });
   });
 }
