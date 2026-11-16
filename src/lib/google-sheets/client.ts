@@ -1,6 +1,7 @@
 import "server-only";
 
 import { WorkbookUnavailableError } from "@/lib/excel/repository";
+import { assertSafeSpreadsheetConfiguration } from "@/lib/config/runtime-safety";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -28,11 +29,9 @@ async function accessToken() {
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
-const productionSpreadsheetId = "18YbqQZbxXLHm3gI51UH_EphsSW1X7RBueM7YDeOhrfw";
 function assertWritableSpreadsheet() {
-  if (spreadsheetId() === productionSpreadsheetId || spreadsheetId() === process.env.GOOGLE_SHEETS_PRODUCTION_SPREADSHEET_ID) {
-    throw new WorkbookUnavailableError("Writes to the LACC Production spreadsheet are disabled by the integration-test safety guard.");
-  }
+  try { assertSafeSpreadsheetConfiguration(); }
+  catch (error) { throw new WorkbookUnavailableError(error instanceof Error ? error.message : "Unsafe Google Sheets configuration."); }
 }
 const rowLocks = new Map<string, Promise<void>>();
 
@@ -47,6 +46,8 @@ async function withRowLock<T>(key: string, operation: () => Promise<T>): Promise
 }
 
 async function request(path: string, init: RequestInit = {}) {
+  try { assertSafeSpreadsheetConfiguration(); }
+  catch (error) { throw new WorkbookUnavailableError(error instanceof Error ? error.message : "Unsafe Google Sheets configuration."); }
   const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId())}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${await accessToken()}`, ...(init.headers ?? {}) },
