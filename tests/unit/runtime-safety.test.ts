@@ -41,6 +41,7 @@ describe("runtime storage safety", () => {
   it("allows only the approved Production Neon endpoint", () => {
     process.env.VERCEL_ENV = "production";
     expect(() => assertSafeSqlConfiguration("postgresql://user:pass@ep-green-meadow-bcqt6qig.c-16.us-east-1.aws.neon.tech/neondb")).not.toThrow();
+    expect(() => assertSafeSqlConfiguration("postgresql://user:pass@ep-green-meadow-bcqt6qig-pooler.c-16.us-east-1.aws.neon.tech/neondb")).not.toThrow();
     expect(() => assertSafeSqlConfiguration("postgresql://user:pass@ep-shiny-mode-bbsu0bjo-pooler.c-15.us-east-1.aws.neon.tech/neondb")).toThrow(/approved Neon endpoint/);
   });
 });

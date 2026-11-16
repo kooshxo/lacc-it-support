@@ -3,10 +3,12 @@ import "server-only";
 const productionSpreadsheetId = "18YbqQZbxXLHm3gI51UH_EphsSW1X7RBueM7YDeOhrfw";
 const previewSpreadsheetId = "1tCkw89rBVRJjOjjneDbp2MShq8R_2NYah4imdX6-8Ug";
 const previewSqlHosts = new Set([
+  "ep-shiny-mode-bbsu0bjo.c-15.us-east-1.aws.neon.tech",
   "ep-shiny-mode-bbsu0bjo-pooler.c-15.us-east-1.aws.neon.tech",
 ]);
 const productionSqlHosts = new Set([
   "ep-green-meadow-bcqt6qig.c-16.us-east-1.aws.neon.tech",
+  "ep-green-meadow-bcqt6qig-pooler.c-16.us-east-1.aws.neon.tech",
 ]);
 
 function runtimeEnvironment(): "preview" | "production" {
