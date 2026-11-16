@@ -31,6 +31,7 @@ async function accessToken() {
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
+const historicalSpreadsheetId = "1pDvb5W1FajPdE4paro-AzJDfr9mI2lCgNad8GXH34EM";
 const columnLetter = (index: number) => { let n = index + 1, result = ""; while (n > 0) { const r = (n - 1) % 26; result = String.fromCharCode(65 + r) + result; n = Math.floor((n - 1) / 26); } return result; };
 function assertWritableSpreadsheet() {
   try { assertSafeSpreadsheetConfiguration(); }
@@ -58,6 +59,17 @@ async function request(path: string, init: RequestInit = {}) {
   });
   if (!response.ok) throw new WorkbookUnavailableError(`Google Sheets request failed (${response.status}).`);
   return response;
+}
+
+/** Read-only access to the historical requester source. Passwords and writes are never exposed. */
+export async function readHistoricalRequesterRows() {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${historicalSpreadsheetId}/values/${encodeURIComponent("IT support request!A1:E")}`, {
+    headers: { Authorization: `Bearer ${await accessToken()}` },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new WorkbookUnavailableError(`Historical requester lookup failed (${response.status}).`);
+  const payload = await response.json() as { values?: unknown[][] };
+  return payload.values ?? [];
 }
 
 export async function readGoogleSheetIntakeRows() {
