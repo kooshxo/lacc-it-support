@@ -72,6 +72,31 @@ export async function readHistoricalRequesterRows() {
   return payload.values ?? [];
 }
 
+/** Read native data-validation choices from a bounded spreadsheet column. Read-only. */
+export async function readGoogleSheetValidationOptions(id: string, range: string): Promise<string[]> {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}?includeGridData=true&ranges=${encodeURIComponent(range)}&fields=sheets(data(rowData(values(dataValidation(condition(values(userEnteredValue)))))))`, {
+    headers: { Authorization: `Bearer ${await accessToken()}` },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new WorkbookUnavailableError(`Google Sheets staff validation lookup failed (${response.status}).`);
+  const payload = await response.json() as { sheets?: Array<{ data?: Array<{ rowData?: Array<{ values?: Array<{ dataValidation?: { condition?: { values?: Array<{ userEnteredValue?: string }> } } }> }> }> }> };
+  const options = new Set<string>();
+  for (const grid of payload.sheets?.flatMap((sheet) => sheet.data ?? []) ?? []) {
+    for (const row of grid.rowData ?? []) {
+      for (const cell of row.values ?? []) {
+        for (const value of cell.dataValidation?.condition?.values ?? []) {
+          if (value.userEnteredValue?.trim()) options.add(value.userEnteredValue.trim());
+        }
+      }
+    }
+  }
+  return [...options];
+}
+
+export async function readGoogleSheetStaffValidationOptions(): Promise<string[]> {
+  return readGoogleSheetValidationOptions(spreadsheetId(), `${sheetName()}!Q1:Q1000`);
+}
+
 export async function readGoogleSheetIntakeRows() {
   const range = `${sheetName()}!A2:Z`;
   const response = await request(`/values/${encodeURIComponent(range)}`);

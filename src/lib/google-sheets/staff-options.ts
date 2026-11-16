@@ -1,11 +1,11 @@
 import "server-only";
-import { readGoogleSheetValues } from "./client";
-
-const fallbackStaffOptions = ["Duane", "Jose"];
+import { readGoogleSheetStaffValidationOptions, readGoogleSheetValidationOptions } from "./client";
+const historicalSpreadsheetId = "1pDvb5W1FajPdE4paro-AzJDfr9mI2lCgNad8GXH34EM";
 export async function readGoogleSheetStaffOptions(): Promise<string[]> {
   try {
-    const values = await readGoogleSheetValues("STAFF_OPTIONS!A2:A");
-    const options = values.map((row) => String(row[0] ?? "").trim()).filter(Boolean);
-    return [...new Set(options)].sort((a, b) => a.localeCompare(b));
-  } catch { return fallbackStaffOptions; }
+    const live = await readGoogleSheetStaffValidationOptions();
+    const historical = live.length ? live : await readGoogleSheetValidationOptions(historicalSpreadsheetId, "IT support request!R1:R4433");
+    return [...new Set(historical.filter((name) => !/^tbd$/i.test(name) && !/^staff working the request/i.test(name)))].sort((a, b) => a.localeCompare(b));
+  }
+  catch { return []; }
 }

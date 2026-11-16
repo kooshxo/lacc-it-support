@@ -29,8 +29,11 @@ export async function updateTicketAction(ticketUid: string, ticketNumber: string
   const status = resolved ? "RESOLVED" : currentStatus === "RESOLVED" ? "IN_PROGRESS" : currentStatus;
   const allowedStaff = process.env.TICKET_BACKEND === "google" ? await readGoogleSheetStaffOptions() : undefined;
   const normalizedCompletedBy = normalizeCompletedBy(typeof completedBy === "string" ? completedBy : undefined, allowedStaff);
-  const parsed = ticketUpdateSchema.safeParse({ expectedVersion: Number(formData.get("expectedVersion")), operationUid: String(formData.get("operationUid") || randomUUID()), status, priority: formData.get("priority") || undefined, completedBy: normalizedCompletedBy || undefined, internalNote: formData.get("internalNote") });
-  if (!parsed.success) return { error: "The update contains an invalid value. Review the fields and try again." };
+  const optionalString = (name: string) => { const value = formData.get(name); return typeof value === "string" && value.trim() ? value : undefined; };
+  const parsed = ticketUpdateSchema.safeParse({ expectedVersion: Number(formData.get("expectedVersion")), operationUid: optionalString("operationUid") ?? randomUUID(), status, priority: optionalString("priority"), completedBy: normalizedCompletedBy || undefined, internalNote: optionalString("internalNote") });
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map((issue) => `${String(issue.path[0] ?? "update")}: ${issue.message}`).join("; ") };
+  }
   if (resolved && !normalizedCompletedBy) return { error: "Select who completed the ticket before marking it resolved." };
   try {
     const ticket = await getRepository().updateTicket(ticketUid, parsed.data, actor);
