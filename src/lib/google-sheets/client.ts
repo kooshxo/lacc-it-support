@@ -28,6 +28,12 @@ async function accessToken() {
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
+const productionSpreadsheetId = "18YbqQZbxXLHm3gI51UH_EphsSW1X7RBueM7YDeOhrfw";
+function assertWritableSpreadsheet() {
+  if (spreadsheetId() === productionSpreadsheetId || spreadsheetId() === process.env.GOOGLE_SHEETS_PRODUCTION_SPREADSHEET_ID) {
+    throw new WorkbookUnavailableError("Writes to the LACC Production spreadsheet are disabled by the integration-test safety guard.");
+  }
+}
 const rowLocks = new Map<string, Promise<void>>();
 
 async function withRowLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -88,6 +94,7 @@ export async function readGoogleSheetIntakeTable() {
 }
 
 export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>, expected?: { timestamp: string; email: string; ticketId?: string }) {
+  assertWritableSpreadsheet();
   return withRowLock(`${spreadsheetId()}:${sheetName()}:${row}`, async () => {
     if (expected) {
       const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Q${row}`)}`);
