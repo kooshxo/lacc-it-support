@@ -67,6 +67,12 @@ export async function readGoogleSheetIntakeRows() {
   return payload.values ?? [];
 }
 
+export async function readGoogleSheetValues(range: string): Promise<unknown[][]> {
+  const response = await request(`/values/${encodeURIComponent(range)}`);
+  const payload = await response.json() as { values?: unknown[][] };
+  return payload.values ?? [];
+}
+
 export async function readGoogleSheetIntakeTable() {
   const range = `${sheetName()}!A1:Z`;
   const response = await request(`/values/${encodeURIComponent(range)}`);

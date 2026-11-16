@@ -9,11 +9,10 @@ import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
-import { completedByOptions } from "@/lib/domain/staff-options";
 
 type TicketFormAction = (formData: FormData) => void;
 
-export function TicketManageForm({ ticket, internalNotes }: { ticket: Ticket; internalNotes: TicketMessage[] }) {
+export function TicketManageForm({ ticket, internalNotes, completedByOptions }: { ticket: Ticket; internalNotes: TicketMessage[]; completedByOptions: string[] }) {
   const router = useRouter();
   const [editingFromVersion, setEditingFromVersion] = useState<number | null>(null);
   const action = useMemo(() => updateTicketAction.bind(null, ticket.ticketUid, ticket.ticketNumber), [ticket.ticketUid, ticket.ticketNumber]);
@@ -53,14 +52,16 @@ export function TicketManageForm({ ticket, internalNotes }: { ticket: Ticket; in
     ticket={hydratedTicket}
     state={state}
     pending={pending}
+    completedByOptions={completedByOptions}
   />;
 }
 
-function TicketManageFields({ action, ticket, state, pending }: {
+function TicketManageFields({ action, ticket, state, pending, completedByOptions }: {
   action: TicketFormAction;
   ticket: Ticket;
   state: ActionState;
   pending: boolean;
+  completedByOptions: string[];
 }) {
   const submissionInFlight = useRef(false);
   useEffect(() => {
