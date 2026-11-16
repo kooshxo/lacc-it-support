@@ -1,4 +1,4 @@
-const spanishMarkers = /\b(el|la|los|las|que|una|uno|por|para|con|del|está|necesito|ayuda|problema|correo|contraseña|computadora|impresora)\b|[áéíóúñ¿¡]/i;
+const spanishMarkers = /\b(el|la|los|las|que|una|uno|por|para|con|del|está|esta|necesito|necesita|ayuda|problema|correo|email|contraseña|computadora|impresora|mi|funcionando|no)\b|[áéíóúñ¿¡]/i;
 export function isSpanishText(value: string): boolean { return spanishMarkers.test(value); }
 export async function translateTicketDescription(value: string): Promise<string | null> {
   if (!value.trim() || !isSpanishText(value)) return null;
