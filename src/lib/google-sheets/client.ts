@@ -2,6 +2,7 @@ import "server-only";
 
 import { WorkbookUnavailableError } from "@/lib/excel/repository";
 import { assertSafeSpreadsheetConfiguration } from "@/lib/config/runtime-safety";
+import { parseGoogleFormsTimestamp } from "./time";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -103,8 +104,8 @@ export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[st
       const currentTimestamp = String(current[0] ?? "").trim();
       const currentEmail = String(current[1] ?? "").trim().toLowerCase();
       const currentTicketId = String(current[16] ?? "").trim();
-      const expectedTimestamp = new Date(expected.timestamp).getTime();
-      const actualTimestamp = new Date(currentTimestamp).getTime();
+      const expectedTimestamp = parseGoogleFormsTimestamp(expected.timestamp)?.getTime();
+      const actualTimestamp = parseGoogleFormsTimestamp(currentTimestamp)?.getTime();
       if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId)) {
         throw new WorkbookUnavailableError("The spreadsheet row changed identity; refresh before saving.");
       }

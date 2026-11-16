@@ -5,9 +5,10 @@ import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@
 import { readGoogleSheetIntakeTable, updateGoogleSheetIntakeRow } from "./client";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
+import { parseGoogleFormsTimestamp } from "./time";
 
 const field = (row: unknown[], index: number | undefined) => String(index === undefined ? "" : row[index] ?? "").trim();
-const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
+const asDate = parseGoogleFormsTimestamp;
 const cutoff = new Date("2026-11-07T00:00:00-05:00");
 const statusFor = (status: string, solved: string): TicketStatus => {
   if (status) {
