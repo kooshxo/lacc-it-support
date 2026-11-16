@@ -2,29 +2,52 @@ import "server-only";
 import type { AttachmentRecord, Employee, HealthCheck, Priority, Ticket, TicketDetail, TicketEvent, TicketMessage, TicketStatus } from "@/lib/domain/models";
 import { canManageTickets, canReadTicket } from "@/lib/domain/policy";
 import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
-import { readGoogleSheetIntakeRows, updateGoogleSheetIntakeRow } from "./client";
-import { hasRealSourceValue, isCompletionValue, isValidSourceDate } from "@/lib/domain/resolution";
+import { readGoogleSheetIntakeTable, updateGoogleSheetIntakeRow } from "./client";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 
-const field = (row: unknown[], index: number) => String(row[index] ?? "").trim();
+const field = (row: unknown[], index: number | undefined) => String(index === undefined ? "" : row[index] ?? "").trim();
 const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
-const lastWednesday = (now = new Date()) => { const date = new Date(now); date.setHours(0, 0, 0, 0); const days = (date.getDay() - 3 + 7) % 7 || 7; date.setDate(date.getDate() - days); return date; };
-const statusFor = (solved: string, solvedDate: string, completion: string, staff: string): TicketStatus => isCompletionValue(solved) || isValidSourceDate(solvedDate) || isValidSourceDate(completion) || hasRealSourceValue(staff) ? "RESOLVED" : "NEW";
+const cutoff = new Date("2026-11-07T00:00:00-05:00");
+const statusFor = (status: string, solved: string): TicketStatus => {
+  const normalized = canonicalTicketStatus(status);
+  if (normalized === "IN_PROGRESS" || normalized === "RESOLVED" || normalized === "NEW") return normalized;
+  return String(solved).toLowerCase() === "true" || String(solved).toLowerCase() === "yes" ? "RESOLVED" : "NEW";
+};
+
+type Columns = Record<string, number>;
+function columns(headers: unknown[]): Columns {
+  const normalized = headers.map((h) => String(h ?? "").trim().toLowerCase());
+  const find = (test: (value: string) => boolean, required = true) => {
+    const index = normalized.findIndex(test);
+    if (required && index < 0) throw new WorkbookUnavailableError("The TICKETS sheet is missing a required header.");
+    return index;
+  };
+  return {
+    timestamp: find((v) => v.startsWith("timestamp")), email: find((v) => v.includes("lacc work email")),
+    department: find((v) => v.startsWith("department")), phone: find((v) => v.startsWith("phone"), false),
+    extension: find((v) => v.startsWith("extension"), false), category: find((v) => v.startsWith("what do you need")),
+    problem: find((v) => v.startsWith("describe your problem"), false), access: find((v) => v.startsWith("describe the badge"), false),
+    site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("full name /"), false),
+    resolved: find((v) => v.startsWith("resolved"), false), staff: find((v) => v.startsWith("staff resolved"), false),
+    ticketId: find((v) => v === "ticket id", false), status: find((v) => v === "status", false),
+    resolvedAt: find((v) => v === "resolved at", false), resolution: find((v) => v === "resolution details", false), updatedAt: find((v) => v === "last updated at", false),
+  };
+}
 
 type IntakeTicket = Ticket & { sourceRow: number };
 
-function ticketFrom(row: unknown[], sourceRow: number): IntakeTicket | null {
-  const created = asDate(field(row, 0));
-  if (!created || created < lastWednesday()) return null;
-  const requesterEmail = field(row, 4).toLowerCase();
-  const detail = field(row, 7);
-  const needs = field(row, 8);
-  const solved = field(row, 10);
-  const resolutionNotes = field(row, 12);
-  const solvedDate = field(row, 14);
-  const completion = field(row, 15);
-  const staff = field(row, 17);
+function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket | null {
+  const created = asDate(field(row, c.timestamp));
+  if (!created || created < cutoff) return null;
+  const requesterEmail = field(row, c.email).toLowerCase();
+  const detail = [field(row, c.problem), field(row, c.access)].filter(Boolean).join("\n");
+  const needs = field(row, c.category);
+  const solved = field(row, c.resolved);
+  const status = field(row, c.status);
+  const resolvedAt = field(row, c.resolvedAt);
+  const resolutionNotes = field(row, c.resolution);
+  const staff = field(row, c.staff);
   const ticket: IntakeTicket = {
     sourceRow,
     ticketUid: `google-row-${sourceRow}`,
@@ -35,31 +58,33 @@ function ticketFrom(row: unknown[], sourceRow: number): IntakeTicket | null {
     requesterName: field(row, 1) || "Unidentified requester",
     subject: needs || detail.slice(0, 100) || "IT support request",
     description: detail || needs || "No additional details supplied.",
-    category: field(row, 11) || needs || "General IT",
+    category: needs || "General IT",
     priority: "P3" as Priority,
-    status: statusFor(solved, solvedDate, completion, staff),
+    status: statusFor(status, solved),
     assigneeUid: "",
-    departmentUid: field(row, 5),
-    locationUid: field(row, 6),
+    departmentUid: field(row, c.department),
+    locationUid: field(row, c.site),
     assetUid: "",
     impact: "ONE",
     workBlocked: false,
     workaroundAvailable: false,
     createdAt: created.toISOString(),
-    updatedAt: completion && asDate(completion) ? asDate(completion)!.toISOString() : created.toISOString(),
-    resolvedAt: solved.toLowerCase() === "yes" && completion && asDate(completion) ? asDate(completion)!.toISOString() : "",
+    updatedAt: field(row, c.updatedAt) || created.toISOString(),
+    resolvedAt: resolvedAt && asDate(resolvedAt) ? asDate(resolvedAt)!.toISOString() : "",
     version: sourceRow,
     historicalStaff: staff,
     resolutionNotes,
     sourceSolvedValue: solved,
-    sourceSolvedDate: solvedDate,
-    completionTimestamp: completion,
+    sourceSolvedDate: resolvedAt,
+    completionTimestamp: resolvedAt,
   };
+  ticket.status = statusFor(status, solved);
+  ticket.requesterName = field(row, c.name) || "Unidentified requester";
   return ticket;
 }
 
 export class GoogleSheetTicketRepository implements TicketRepository {
-  private async tickets() { return (await readGoogleSheetIntakeRows()).map((row, index) => ticketFrom(row, index + 2)).filter((ticket): ticket is IntakeTicket => ticket !== null); }
+  private async tickets() { const table = await readGoogleSheetIntakeTable(); const c = columns(table.headers); return table.rows.map((row, index) => ticketFrom(row, index + 2, c)).filter((ticket): ticket is IntakeTicket => ticket !== null); }
 
   async getEmployeeByEmail(email: string): Promise<Employee | null> {
     const normalized = email.trim().toLowerCase();
@@ -93,21 +118,19 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     const ticket = (await this.tickets()).find((item) => item.ticketUid === ticketUid);
     if (!ticket) throw new NotFoundError();
     if (ticket.version !== input.expectedVersion) throw new ConflictError();
-    if (input.status && canonicalTicketStatus(input.status) === canonicalTicketStatus(ticket.status)) {
-      const updates: Array<[string, string]> = [];
-      if (input.completedBy !== undefined && input.completedBy !== ticket.completedBy && input.completedBy.trim()) updates.push(["R", input.completedBy.trim()]);
-      if (input.resolutionNotes !== undefined && input.resolutionNotes !== ticket.resolutionNotes) updates.push(["M", input.resolutionNotes]);
-      if (updates.length) await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
-      return { ...ticket, completedBy: input.completedBy ?? ticket.completedBy, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: updates.length ? new Date().toISOString() : ticket.updatedAt };
+    const nextStatus = canonicalTicketStatus(input.status ?? ticket.status);
+    const now = new Date().toISOString();
+    const staff = input.completedBy?.trim() ?? ticket.completedBy ?? "";
+    const updates: Array<[string, string]> = [["R", nextStatus], ["U", now]];
+    if (nextStatus === "RESOLVED") {
+      updates.push(["O", "TRUE"], ["P", staff], ["S", now]);
+    } else {
+      updates.push(["O", "FALSE"], ["S", ""]);
+      if (input.completedBy !== undefined) updates.push(["P", staff]);
     }
-    if (!input.status || canonicalTicketStatus(input.status) !== "RESOLVED") throw new WorkbookUnavailableError("The legacy Google Sheet cannot safely store reopened status changes. SQL ticket storage is required for this workflow.");
-    const completedAt = new Date().toISOString();
-    const staff = input.completedBy?.trim() ?? ticket.historicalStaff ?? "";
-    const solvedDate = completedAt.slice(0, 10);
-    const updates: Array<[string, string]> = [["K", "Yes"], ["O", solvedDate], ["P", "TRUE"], ["R", staff]];
-    if (input.resolutionNotes) updates.push(["M", input.resolutionNotes]);
+    if (input.resolutionNotes !== undefined) updates.push(["T", input.resolutionNotes]);
     await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
-    return { ...ticket, status: "RESOLVED", completedBy: staff, historicalStaff: ticket.historicalStaff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, sourceSolvedValue: "Yes", sourceSolvedDate: solvedDate, completionTimestamp: "TRUE", updatedAt: completedAt, resolvedAt: completedAt };
+    return { ...ticket, status: nextStatus, completedBy: staff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: now, resolvedAt: nextStatus === "RESOLVED" ? now : "" };
   }
 
   async healthCheck(): Promise<HealthCheck> {

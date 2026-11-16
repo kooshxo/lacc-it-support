@@ -10,7 +10,9 @@ let repository: TicketRepository | undefined;
 
 export function getRepository(): TicketRepository {
   if (repository) return repository;
-  const backend = process.env.DATA_BACKEND ?? "graph";
+  // Ticket storage can be selected independently from SQL-backed operations
+  // (inventory, authentication, onboarding, and audit history).
+  const backend = process.env.TICKET_BACKEND ?? process.env.DATA_BACKEND ?? "graph";
   if (backend === "fixture") {
     if (process.env.NODE_ENV === "production") throw new Error("Fixture data is disabled in production.");
     repository = new FixtureTicketRepository();

@@ -62,10 +62,18 @@ export async function markGoogleSheetTicketCompleted(ticketNumber: string, staff
 }
 
 export async function readGoogleSheetIntakeRows() {
-  const range = `${sheetName()}!A2:S`;
+  const range = `${sheetName()}!A2:U`;
   const response = await request(`/values/${encodeURIComponent(range)}`);
   const payload = await response.json() as { values?: unknown[][] };
   return payload.values ?? [];
+}
+
+export async function readGoogleSheetIntakeTable() {
+  const range = `${sheetName()}!A1:U`;
+  const response = await request(`/values/${encodeURIComponent(range)}`);
+  const payload = await response.json() as { values?: unknown[][] };
+  const values = payload.values ?? [];
+  return { headers: values[0] ?? [], rows: values.slice(1) };
 }
 
 export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>) {
