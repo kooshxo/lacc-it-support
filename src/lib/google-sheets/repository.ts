@@ -10,8 +10,10 @@ const field = (row: unknown[], index: number | undefined) => String(index === un
 const asDate = (value: string) => { const date = new Date(value); return Number.isNaN(date.valueOf()) ? null : date; };
 const cutoff = new Date("2026-11-07T00:00:00-05:00");
 const statusFor = (status: string, solved: string): TicketStatus => {
-  const normalized = canonicalTicketStatus(status);
-  if (normalized === "IN_PROGRESS" || normalized === "RESOLVED" || normalized === "NEW") return normalized;
+  if (status) {
+    const normalized = canonicalTicketStatus(status);
+    if (normalized === "IN_PROGRESS" || normalized === "RESOLVED" || normalized === "NEW") return normalized;
+  }
   return String(solved).toLowerCase() === "true" || String(solved).toLowerCase() === "yes" ? "RESOLVED" : "NEW";
 };
 
@@ -50,7 +52,7 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
   const staff = field(row, c.staff);
   const ticket: IntakeTicket = {
     sourceRow,
-    ticketUid: `google-row-${sourceRow}`,
+    ticketUid: field(row, c.ticketId) || `google-row-${sourceRow}`,
     ticketNumber: `GS-${sourceRow}`,
     operationUid: "",
     requesterUid: requesterEmail || `requester-${sourceRow}`,
@@ -72,6 +74,7 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
     updatedAt: field(row, c.updatedAt) || created.toISOString(),
     resolvedAt: resolvedAt && asDate(resolvedAt) ? asDate(resolvedAt)!.toISOString() : "",
     version: sourceRow,
+    completedBy: staff,
     historicalStaff: staff,
     resolutionNotes,
     sourceSolvedValue: solved,
