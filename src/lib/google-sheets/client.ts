@@ -58,28 +58,6 @@ async function request(path: string, init: RequestInit = {}) {
   return response;
 }
 
-export async function markGoogleSheetTicketCompleted(ticketNumber: string, staffName: string, completedAt: string) {
-  const range = `${sheetName()}!S2:S`;
-  const valuesResponse = await request(`/values/${encodeURIComponent(range)}`);
-  const values = await valuesResponse.json() as { values?: unknown[][] };
-  const offset = (values.values ?? []).findIndex((row) => String(row[0] ?? "").trim() === ticketNumber.trim());
-  if (offset < 0) throw new WorkbookUnavailableError(`The source intake row for ticket ${ticketNumber} could not be found.`);
-  const row = offset + 2;
-  const body = {
-    valueInputOption: "USER_ENTERED",
-    data: [
-      { range: `${sheetName()}!K${row}`, values: [["Yes"]] },
-      { range: `${sheetName()}!P${row}`, values: [[completedAt]] },
-      { range: `${sheetName()}!R${row}`, values: [[staffName]] },
-    ],
-  };
-  await request("/values:batchUpdate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 export async function readGoogleSheetIntakeRows() {
   const range = `${sheetName()}!A2:U`;
   const response = await request(`/values/${encodeURIComponent(range)}`);

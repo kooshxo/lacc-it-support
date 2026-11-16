@@ -8,7 +8,6 @@ import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 import { GraphExcelClient, getWorkbookAccessToken } from "./graph-client";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "./repository";
 import { requiredTables, tableNames } from "./tables";
-import { markGoogleSheetTicketCompleted } from "@/lib/google-sheets/client";
 
 type Row = { index: number; values: unknown[][] };
 const text = (value: unknown) => value == null ? "" : String(value).trim();
@@ -114,10 +113,6 @@ export class GraphTicketRepository implements TicketRepository {
   }
 
   private async markLegacyIntakeCompleted(client: GraphExcelClient, session: string, ticketNumber: string, staffName: string, completedAt: string) {
-    if (process.env.GOOGLE_SHEETS_SPREADSHEET_ID) {
-      await markGoogleSheetTicketCompleted(ticketNumber, staffName, completedAt);
-      return;
-    }
     const rows = await client.listTableRows(legacyIntakeTable(), session);
     const row = rows.find((candidate) => text(candidate.values[0]?.[legacyColumns.ticketNumber]) === text(ticketNumber));
     if (!row) throw new WorkbookUnavailableError(`The source intake row for ticket ${ticketNumber} could not be found; the ticket was not marked complete.`);

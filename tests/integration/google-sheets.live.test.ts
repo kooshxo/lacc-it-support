@@ -47,8 +47,8 @@ describe("real Google Sheets adapter integration", () => {
     const repo = new GoogleSheetTicketRepository();
     const actor = await repo.getEmployeeByEmail("it@example.invalid");
     const ticket = (await repo.listTickets()).find((item) => item.ticketUid === "synthetic-three")!;
-    await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "synthetic-op", status: "IN_PROGRESS" }, actor!);
-    await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "synthetic-op-2", status: "RESOLVED", completedBy: "Synthetic Tech", resolutionNotes: "Synthetic resolution" }, actor!);
+    const inProgress = await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "synthetic-op", status: "IN_PROGRESS" }, actor!);
+    await repo.updateTicket(ticket.ticketUid, { expectedVersion: inProgress.version, operationUid: "synthetic-op-2", status: "RESOLVED", completedBy: "Synthetic Tech", resolutionNotes: "Synthetic resolution" }, actor!);
     const reread = (await repo.listTickets()).find((item) => item.ticketUid === "synthetic-three")!;
     expect(reread.status).toBe("RESOLVED");
     expect(reread.completedBy).toBe("Synthetic Tech");
@@ -58,5 +58,7 @@ describe("real Google Sheets adapter integration", () => {
   it("refuses a stale version", async () => {
     const repo = new GoogleSheetTicketRepository(); const actor = await repo.getEmployeeByEmail("it@example.invalid"); const ticket = (await repo.listTickets()).find((item) => item.ticketUid === "synthetic-three")!;
     await expect(repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version + 1, operationUid: "stale", status: "NEW" }, actor!)).rejects.toThrow("changed since");
+    await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "first-from-original", status: "IN_PROGRESS" }, actor!);
+    await expect(repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "second-from-original", status: "NEW" }, actor!)).rejects.toThrow("changed since");
   });
 });
