@@ -31,6 +31,7 @@ async function accessToken() {
 
 const sheetName = () => process.env.GOOGLE_SHEETS_TAB_NAME ?? "your-sheet-tab";
 const spreadsheetId = () => required("GOOGLE_SHEETS_SPREADSHEET_ID");
+const columnLetter = (index: number) => { let n = index + 1, result = ""; while (n > 0) { const r = (n - 1) % 26; result = String.fromCharCode(65 + r) + result; n = Math.floor((n - 1) / 26); } return result; };
 function assertWritableSpreadsheet() {
   try { assertSafeSpreadsheetConfiguration(); }
   catch (error) { throw new WorkbookUnavailableError(error instanceof Error ? error.message : "Unsafe Google Sheets configuration."); }
@@ -60,14 +61,14 @@ async function request(path: string, init: RequestInit = {}) {
 }
 
 export async function readGoogleSheetIntakeRows() {
-  const range = `${sheetName()}!A2:U`;
+  const range = `${sheetName()}!A2:Z`;
   const response = await request(`/values/${encodeURIComponent(range)}`);
   const payload = await response.json() as { values?: unknown[][] };
   return payload.values ?? [];
 }
 
 export async function readGoogleSheetIntakeTable() {
-  const range = `${sheetName()}!A1:U`;
+  const range = `${sheetName()}!A1:Z`;
   const response = await request(`/values/${encodeURIComponent(range)}`);
   const payload = await response.json() as { values?: unknown[][] };
   const values = payload.values ?? [];
@@ -78,12 +79,25 @@ export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[st
   assertWritableSpreadsheet();
   return withRowLock(`${spreadsheetId()}:${sheetName()}:${row}`, async () => {
     if (expected) {
-      const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:U${row}`)}`);
+      const headerResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A1:Z1`)}`);
+      const headers = ((await headerResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
+      const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Z${row}`)}`);
       const current = ((await currentResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
-      const currentTimestamp = String(current[0] ?? "").trim();
-      const currentEmail = String(current[1] ?? "").trim().toLowerCase();
-      const currentTicketId = String(current[16] ?? "").trim();
-      const currentVersion = ticketMetadataVersion(row, [String(current[20] ?? "").trim(), String(current[17] ?? "").trim(), String(current[18] ?? "").trim(), String(current[19] ?? "").trim(), String(current[15] ?? "").trim(), String(current[14] ?? "").trim()]);
+      const normalized = headers.map((header) => String(header ?? "").trim().toLowerCase());
+      const find = (test: (value: string) => boolean) => normalized.findIndex(test);
+      const timestampIndex = find((value) => value.startsWith("timestamp"));
+      const emailIndex = find((value) => value.includes("lacc work email"));
+      const ticketIdIndex = normalized.indexOf("ticket id");
+      const resolvedIndex = find((value) => value.startsWith("resolved"));
+      const staffIndex = find((value) => value.startsWith("staff resolved"));
+      const statusIndex = normalized.indexOf("status");
+      const resolvedAtIndex = normalized.indexOf("resolved at");
+      const resolutionIndex = normalized.indexOf("resolution details");
+      const updatedAtIndex = normalized.indexOf("last updated at");
+      const currentTimestamp = String(current[timestampIndex] ?? "").trim();
+      const currentEmail = String(current[emailIndex] ?? "").trim().toLowerCase();
+      const currentTicketId = String(current[ticketIdIndex] ?? "").trim();
+      const currentVersion = ticketMetadataVersion(row, [String(current[updatedAtIndex] ?? "").trim(), String(current[statusIndex] ?? "").trim(), String(current[resolvedAtIndex] ?? "").trim(), String(current[resolutionIndex] ?? "").trim(), String(current[staffIndex] ?? "").trim(), String(current[resolvedIndex] ?? "").trim()]);
       const expectedTimestamp = parseGoogleFormsTimestamp(expected.timestamp)?.getTime();
       const actualTimestamp = parseGoogleFormsTimestamp(currentTimestamp)?.getTime();
       if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId) || (expected.version !== undefined && currentVersion !== expected.version)) {
@@ -100,3 +114,5 @@ export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[st
     });
   });
 }
+
+export { columnLetter };

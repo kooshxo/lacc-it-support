@@ -6,8 +6,8 @@ const enabled = process.env.RUN_GOOGLE_SHEETS_INTEGRATION === "true";
 const id = process.env.GOOGLE_SHEETS_TEST_SPREADSHEET_ID;
 const missing = !id || !process.env.GOOGLE_SHEETS_CLIENT_ID || !process.env.GOOGLE_SHEETS_CLIENT_SECRET || !process.env.GOOGLE_SHEETS_REFRESH_TOKEN;
 
-const headers = ["Timestamp", "LACC work email / Correo electrónico del LACC", "Department / Departamento", "Phone", "Extension", "What do you need? / ¿Qué necesita?", "Badge", "Badge name", "Describe your problem / Describa su problema", "Describe the badge or access you need", "Existing badge", "Site / building where help is needed", "Full name", "Site / building", "Resolved ?", "Staff Resolved", "Ticket ID", "Status", "Resolved At", "Resolution Details", "Last Updated At"];
-const row = (timestamp: string, email: string, ticketId = "") => [timestamp, email, "Test", "555-0100", "100", "Other / Otro", "", "", "Synthetic test request", "", "", "Test Building", "Fictional Requester", "Test Building", "FALSE", "", ticketId, "", "", "", ""];
+const headers = ["Timestamp", "LACC work email / Correo electrónico del LACC", "Department / Departamento", "Phone", "Extension", "What do you need? / ¿Qué necesita?", "Badge", "Badge name", "Describe your problem / Describa su problema", "Describe the badge or access you need", "Existing badge", "Site / building where help is needed", "Full name", "Site / building", "Requester Full Name / Nombre completo del solicitante", "Resolved ?", "Staff Resolved", "Ticket ID", "Status", "Resolved At", "Resolution Details", "Last Updated At"];
+const row = (timestamp: string, email: string, ticketId = "") => [timestamp, email, "Test", "555-0100", "100", "Other / Otro", "", "", "Synthetic test request", "", "", "Test Building", "Access person", "Test Building", "Fictional Requester", "FALSE", "", ticketId, "", "", "", ""];
 
 async function googleRequest(path: string, init: RequestInit = {}) {
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: process.env.GOOGLE_SHEETS_CLIENT_ID!, client_secret: process.env.GOOGLE_SHEETS_CLIENT_SECRET!, refresh_token: process.env.GOOGLE_SHEETS_REFRESH_TOKEN!, grant_type: "refresh_token" }) });
@@ -32,7 +32,7 @@ describe("real Google Sheets adapter integration", () => {
   }
   beforeAll(async () => {
     if (id === "18YbqQZbxXLHm3gI51UH_EphsSW1X7RBueM7YDeOhrfw") throw new Error("Test spreadsheet ID must not be the Production spreadsheet.");
-    const range = `${process.env.GOOGLE_SHEETS_TAB_NAME ?? "TICKETS"}!A1:U5`;
+    const range = `${process.env.GOOGLE_SHEETS_TAB_NAME ?? "TICKETS"}!A1:V5`;
     await googleRequest(`/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`, { method: "PUT", body: JSON.stringify({ range, majorDimension: "ROWS", values: [headers, row("11/6/2026 23:59:00", "before@example.invalid"), row("11/7/2026 00:01:00", "one@example.invalid", "synthetic-one"), row("11/7/2026 00:02:00", "two@example.invalid"), row("11/7/2026 00:03:00", "three@example.invalid", "synthetic-three")] }) });
     process.env.GOOGLE_SHEETS_SPREADSHEET_ID = id;
   });

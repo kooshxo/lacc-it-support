@@ -2,7 +2,7 @@ import "server-only";
 import type { AttachmentRecord, Employee, HealthCheck, Priority, Ticket, TicketDetail, TicketEvent, TicketMessage, TicketStatus } from "@/lib/domain/models";
 import { canManageTickets, canReadTicket } from "@/lib/domain/policy";
 import type { MessageCreateInput, TicketCreateInput, TicketUpdateInput } from "@/lib/domain/schemas";
-import { readGoogleSheetIntakeTable, updateGoogleSheetIntakeRow } from "./client";
+import { columnLetter, readGoogleSheetIntakeTable, updateGoogleSheetIntakeRow } from "./client";
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 import { parseGoogleFormsTimestamp } from "./time";
@@ -32,7 +32,7 @@ function columns(headers: unknown[]): Columns {
     department: find((v) => v.startsWith("department")), phone: find((v) => v.startsWith("phone"), false),
     extension: find((v) => v.startsWith("extension"), false), category: find((v) => v.startsWith("what do you need")),
     problem: find((v) => v.startsWith("describe your problem"), false), access: find((v) => v.startsWith("describe the badge"), false),
-    site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("full name"), false),
+    site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("requester full name"), false),
     resolved: find((v) => v.startsWith("resolved"), false), staff: find((v) => v.startsWith("staff resolved"), false),
     ticketId: find((v) => v === "ticket id", false), status: find((v) => v === "status", false),
     resolvedAt: find((v) => v === "resolved at", false), resolution: find((v) => v === "resolution details", false), updatedAt: find((v) => v === "last updated at", false),
@@ -125,14 +125,16 @@ export class GoogleSheetTicketRepository implements TicketRepository {
     const nextStatus = canonicalTicketStatus(input.status ?? ticket.status);
     const now = new Date().toISOString();
     const staff = input.completedBy?.trim() ?? ticket.completedBy ?? "";
-    const updates: Array<[string, string]> = [["R", nextStatus], ["U", now]];
+    const table = await readGoogleSheetIntakeTable();
+    const c = columns(table.headers);
+    const updates: Array<[string, string]> = [[columnLetter(c.status), nextStatus], [columnLetter(c.updatedAt), now]];
     if (nextStatus === "RESOLVED") {
-      updates.push(["O", "TRUE"], ["P", staff], ["S", now]);
+      updates.push([columnLetter(c.resolved), "TRUE"], [columnLetter(c.staff), staff], [columnLetter(c.resolvedAt), now]);
     } else {
-      updates.push(["O", "FALSE"], ["S", ""]);
-      if (input.completedBy !== undefined) updates.push(["P", staff]);
+      updates.push([columnLetter(c.resolved), "FALSE"], [columnLetter(c.resolvedAt), ""]);
+      if (input.completedBy !== undefined) updates.push([columnLetter(c.staff), staff]);
     }
-    if (input.resolutionNotes !== undefined) updates.push(["T", input.resolutionNotes]);
+    if (input.resolutionNotes !== undefined) updates.push([columnLetter(c.resolution), input.resolutionNotes]);
     await updateGoogleSheetIntakeRow(ticket.sourceRow, updates, { timestamp: ticket.createdAt, email: ticket.requesterEmail, ticketId: ticket.ticketUid.startsWith("google-row-") ? undefined : ticket.ticketUid, version: ticket.version });
     return { ...ticket, status: nextStatus, completedBy: staff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: now, resolvedAt: nextStatus === "RESOLVED" ? now : "", version: ticketMetadataVersion(ticket.sourceRow, [now, nextStatus, nextStatus === "RESOLVED" ? now : "", input.resolutionNotes ?? ticket.resolutionNotes ?? "", staff, nextStatus === "RESOLVED" ? "TRUE" : "FALSE"]) };
   }
