@@ -64,11 +64,11 @@ function TicketManageFields({ action, ticket, state, pending, completedByOptions
   completedByOptions: string[];
 }) {
   const submissionInFlight = useRef(false);
+  const [dirty, setDirty] = useState(false);
   useEffect(() => {
     if (!pending) submissionInFlight.current = false;
   }, [pending]);
-
-  return <form action={action} onSubmit={(event)=>{
+  return <form data-unsaved={dirty ? "true" : "false"} action={action} onChange={() => setDirty(true)} onSubmit={(event)=>{
     if (submissionInFlight.current) {
       event.preventDefault();
       return;

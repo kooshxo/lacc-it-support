@@ -15,6 +15,7 @@ import { effectiveCompletedBy } from "@/lib/domain/resolution";
 import { readGoogleSheetStaffOptions } from "@/lib/google-sheets/staff-options";
 import { translateTicketDescription } from "@/lib/domain/translation";
 import { completedByOptions } from "@/lib/domain/staff-options";
+import { LiveTicketRefresh } from "@/components/live-ticket-refresh";
 
 export default async function TicketPage({ params, searchParams }: { params: Promise<{ ticketNumber: string }>; searchParams: Promise<{ created?: string }> }) {
   const [{ ticketNumber }, { created }, employee] = await Promise.all([params, searchParams, requireEmployee()]);
@@ -29,7 +30,7 @@ export default async function TicketPage({ params, searchParams }: { params: Pro
     ...detail.events.flatMap((event) => describeTicketEvent(event).map((description, index) => ({ key: `${event.eventUid}-${index}`, at: event.createdAt, description, actor: ticketEventActor(event), note: "" }))),
     ...internalNotes.map((note) => ({ key: note.messageUid, at: note.createdAt, description: "Internal IT note added", actor: note.authorName === "IT Staff" ? "IT staff (shared account)" : note.authorName, note: note.body })),
   ].sort((a, b) => b.at.localeCompare(a.at));
-  return <div className="space-y-6">
+  return <div className="space-y-6"><LiveTicketRefresh />
     <Link href={agent ? "/it" : "/requests"} className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Back to {agent ? "support inbox" : "my requests"}</Link>
     {created && <Alert className="border-emerald-200 bg-emerald-50 text-emerald-950"><CheckCircle2/><AlertTitle>Request received</AlertTitle><AlertDescription>Your request was saved securely as {ticket.ticketNumber}.</AlertDescription></Alert>}
     <div><p className="text-sm font-medium text-primary">{ticket.ticketNumber}</p><h1 className="mt-1 text-3xl font-semibold tracking-tight">{ticket.subject}</h1><div className="mt-3 flex flex-wrap gap-2"><StatusBadge status={ticket.status}/>{agent && <PriorityBadge priority={ticket.priority}/>}</div></div>

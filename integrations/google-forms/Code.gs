@@ -6,6 +6,19 @@ const LACC_FORM_SOURCE_ID = '1FAIpQLSe1tsFZuYFNUgpwiRh9il72Plgczgj8_CDINrRH2v7Lw
 const LACC_PENDING_PREFIX = 'pending:';
 const LACC_MAX_ATTEMPTS = 12;
 const LACC_RETRY_MS = 5 * 60 * 1000;
+const LACC_SYNTHETIC_SPREADSHEET_ID = '1tCkw89rBVRJjOjjneDbp2MShq8R_2NYah4imdX6-8Ug';
+
+/** Install only while the active spreadsheet is the disposable synthetic test sheet. */
+function installLaccTicketEditTrigger() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (!spreadsheet || spreadsheet.getId() !== LACC_SYNTHETIC_SPREADSHEET_ID) {
+    throw new Error('Refusing to install the test trigger outside the approved synthetic spreadsheet.');
+  }
+  ScriptApp.getProjectTriggers().forEach((trigger) => {
+    if (trigger.getHandlerFunction() === 'syncLaccTicketEdit') ScriptApp.deleteTrigger(trigger);
+  });
+  ScriptApp.newTrigger('syncLaccTicketEdit').forSpreadsheet(spreadsheet).onEdit().create();
+}
 
 function installLaccTicketTriggers() {
   const props = PropertiesService.getScriptProperties();
@@ -124,7 +137,12 @@ function syncLaccTicketEdit(e) {
     const priorResolvedAt = String(values[resolvedAt - 1] || '').trim();
     sheet.getRange(row, status).setValue(isResolved ? 'RESOLVED' : (priorStatus === 'RESOLVED' ? 'IN_PROGRESS' : priorStatus || 'NEW'));
     if (isResolved && !priorResolvedAt) {
-      sheet.getRange(row, resolvedAt).setValue(Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/Detroit', 'MM/dd/yyyy h:mm a z'));
+      // Keep an exact instant whenever the canonical metadata column exists. If
+      // it does not, retain ISO in the visible field rather than silently
+      // discarding milliseconds/time-zone information.
+      sheet.getRange(row, resolvedAt).setValue(resolvedAtIso
+        ? Utilities.formatDate(now, 'America/Detroit', 'MM/dd/yyyy h:mm a z')
+        : now.toISOString());
       if (resolvedAtIso) sheet.getRange(row, resolvedAtIso).setValue(now.toISOString());
     }
     if (!isResolved) sheet.getRange(row, resolvedAt).setValue(priorResolvedAt);
