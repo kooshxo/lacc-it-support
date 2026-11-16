@@ -76,7 +76,19 @@ export async function readGoogleSheetIntakeTable() {
   return { headers: values[0] ?? [], rows: values.slice(1) };
 }
 
-export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>) {
+export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>, expected?: { timestamp: string; email: string; ticketId?: string }) {
+  if (expected) {
+    const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Q${row}`)}`);
+    const current = ((await currentResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
+    const currentTimestamp = String(current[0] ?? "").trim();
+    const currentEmail = String(current[1] ?? "").trim().toLowerCase();
+    const currentTicketId = String(current[16] ?? "").trim();
+    const expectedTimestamp = new Date(expected.timestamp).getTime();
+    const actualTimestamp = new Date(currentTimestamp).getTime();
+    if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId)) {
+      throw new WorkbookUnavailableError("The spreadsheet row changed identity; refresh before saving.");
+    }
+  }
   await request("/values:batchUpdate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

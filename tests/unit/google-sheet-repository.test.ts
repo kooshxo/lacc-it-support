@@ -36,11 +36,11 @@ describe("Google Sheets ticket adapter", () => {
     const repo = new GoogleSheetTicketRepository(); const actor = await repo.getEmployeeByEmail("it@thelatincenter.org");
     const ticket = (await repo.listTickets())[0];
     await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "op-1", status: "IN_PROGRESS" }, actor!);
-    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "IN_PROGRESS"]]));
+    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "IN_PROGRESS"]]), expect.any(Object));
     await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "op-2", status: "RESOLVED", completedBy: "Duane", resolutionNotes: "Fixed" }, actor!);
-    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "RESOLVED"], ["P", "Duane"], ["T", "Fixed"]]));
+    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "RESOLVED"], ["P", "Duane"], ["T", "Fixed"]]), expect.any(Object));
     await repo.updateTicket(ticket.ticketUid, { expectedVersion: ticket.version, operationUid: "op-3", status: "NEW" }, actor!);
-    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "NEW"], ["O", "FALSE"], ["S", ""]]));
+    expect(updateRow).toHaveBeenLastCalledWith(2, expect.arrayContaining([["R", "NEW"], ["O", "FALSE"], ["S", ""]]), expect.any(Object));
   });
 
   it("rejects stale versions before writing", async () => {

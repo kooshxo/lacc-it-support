@@ -132,7 +132,7 @@ export class GoogleSheetTicketRepository implements TicketRepository {
       if (input.completedBy !== undefined) updates.push(["P", staff]);
     }
     if (input.resolutionNotes !== undefined) updates.push(["T", input.resolutionNotes]);
-    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates);
+    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates, { timestamp: ticket.createdAt, email: ticket.requesterEmail, ticketId: ticket.ticketUid.startsWith("google-row-") ? undefined : ticket.ticketUid });
     return { ...ticket, status: nextStatus, completedBy: staff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: now, resolvedAt: nextStatus === "RESOLVED" ? now : "" };
   }
 
