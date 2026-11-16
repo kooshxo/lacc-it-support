@@ -6,16 +6,11 @@ import { readGoogleSheetIntakeTable, updateGoogleSheetIntakeRow } from "./client
 import { AuthorizationError, ConflictError, NotFoundError, type TicketFilter, type TicketRepository, WorkbookUnavailableError } from "@/lib/excel/repository";
 import { canonicalTicketStatus } from "@/lib/domain/ticket-status";
 import { parseGoogleFormsTimestamp } from "./time";
+import { ticketMetadataVersion } from "./version";
 
 const field = (row: unknown[], index: number | undefined) => String(index === undefined ? "" : row[index] ?? "").trim();
 const asDate = parseGoogleFormsTimestamp;
 const cutoff = new Date("2026-11-07T00:00:00-05:00");
-function metadataVersion(sourceRow: number, values: string[]): number {
-  const input = `${sourceRow}|${values.join("|")}`;
-  let hash = 2166136261;
-  for (let index = 0; index < input.length; index += 1) hash = Math.imul(hash ^ input.charCodeAt(index), 16777619);
-  return (hash >>> 0) || 1;
-}
 const statusFor = (status: string, solved: string): TicketStatus => {
   if (status) {
     const normalized = canonicalTicketStatus(status);
@@ -80,7 +75,7 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
     createdAt: created.toISOString(),
     updatedAt: field(row, c.updatedAt) || created.toISOString(),
     resolvedAt: resolvedAt && asDate(resolvedAt) ? asDate(resolvedAt)!.toISOString() : "",
-    version: metadataVersion(sourceRow, [field(row, c.updatedAt), field(row, c.status), field(row, c.resolvedAt), field(row, c.resolution), field(row, c.staff), field(row, c.resolved)]),
+    version: ticketMetadataVersion(sourceRow, [field(row, c.updatedAt), field(row, c.status), field(row, c.resolvedAt), field(row, c.resolution), field(row, c.staff), field(row, c.resolved)]),
     completedBy: staff,
     historicalStaff: staff,
     resolutionNotes,
@@ -139,8 +134,8 @@ export class GoogleSheetTicketRepository implements TicketRepository {
       if (input.completedBy !== undefined) updates.push(["P", staff]);
     }
     if (input.resolutionNotes !== undefined) updates.push(["T", input.resolutionNotes]);
-    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates, { timestamp: ticket.createdAt, email: ticket.requesterEmail, ticketId: ticket.ticketUid.startsWith("google-row-") ? undefined : ticket.ticketUid });
-    return { ...ticket, status: nextStatus, completedBy: staff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: now, resolvedAt: nextStatus === "RESOLVED" ? now : "", version: metadataVersion(ticket.sourceRow, [now, nextStatus, nextStatus === "RESOLVED" ? now : "", input.resolutionNotes ?? ticket.resolutionNotes ?? "", staff, nextStatus === "RESOLVED" ? "TRUE" : "FALSE"]) };
+    await updateGoogleSheetIntakeRow(ticket.sourceRow, updates, { timestamp: ticket.createdAt, email: ticket.requesterEmail, ticketId: ticket.ticketUid.startsWith("google-row-") ? undefined : ticket.ticketUid, version: ticket.version });
+    return { ...ticket, status: nextStatus, completedBy: staff, resolutionNotes: input.resolutionNotes ?? ticket.resolutionNotes, updatedAt: now, resolvedAt: nextStatus === "RESOLVED" ? now : "", version: ticketMetadataVersion(ticket.sourceRow, [now, nextStatus, nextStatus === "RESOLVED" ? now : "", input.resolutionNotes ?? ticket.resolutionNotes ?? "", staff, nextStatus === "RESOLVED" ? "TRUE" : "FALSE"]) };
   }
 
   async healthCheck(): Promise<HealthCheck> {

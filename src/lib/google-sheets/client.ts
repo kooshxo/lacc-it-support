@@ -3,6 +3,7 @@ import "server-only";
 import { WorkbookUnavailableError } from "@/lib/excel/repository";
 import { assertSafeSpreadsheetConfiguration } from "@/lib/config/runtime-safety";
 import { parseGoogleFormsTimestamp } from "./time";
+import { ticketMetadataVersion } from "./version";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -73,18 +74,19 @@ export async function readGoogleSheetIntakeTable() {
   return { headers: values[0] ?? [], rows: values.slice(1) };
 }
 
-export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>, expected?: { timestamp: string; email: string; ticketId?: string }) {
+export async function updateGoogleSheetIntakeRow(row: number, updates: Array<[string, string]>, expected?: { timestamp: string; email: string; ticketId?: string; version?: number }) {
   assertWritableSpreadsheet();
   return withRowLock(`${spreadsheetId()}:${sheetName()}:${row}`, async () => {
     if (expected) {
-      const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:Q${row}`)}`);
+      const currentResponse = await request(`/values/${encodeURIComponent(`${sheetName()}!A${row}:U${row}`)}`);
       const current = ((await currentResponse.json()) as { values?: unknown[][] }).values?.[0] ?? [];
       const currentTimestamp = String(current[0] ?? "").trim();
       const currentEmail = String(current[1] ?? "").trim().toLowerCase();
       const currentTicketId = String(current[16] ?? "").trim();
+      const currentVersion = ticketMetadataVersion(row, [String(current[20] ?? "").trim(), String(current[17] ?? "").trim(), String(current[18] ?? "").trim(), String(current[19] ?? "").trim(), String(current[15] ?? "").trim(), String(current[14] ?? "").trim()]);
       const expectedTimestamp = parseGoogleFormsTimestamp(expected.timestamp)?.getTime();
       const actualTimestamp = parseGoogleFormsTimestamp(currentTimestamp)?.getTime();
-      if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId)) {
+      if (!currentTimestamp || !currentEmail || (Number.isFinite(expectedTimestamp) && Number.isFinite(actualTimestamp) && expectedTimestamp !== actualTimestamp) || currentEmail !== expected.email.trim().toLowerCase() || (expected.ticketId && currentTicketId && expected.ticketId !== currentTicketId) || (expected.version !== undefined && currentVersion !== expected.version)) {
         throw new WorkbookUnavailableError("The spreadsheet row changed identity; refresh before saving.");
       }
     }
