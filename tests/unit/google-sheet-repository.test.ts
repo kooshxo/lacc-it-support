@@ -23,6 +23,19 @@ describe("Google Sheets ticket adapter", () => {
     expect(tickets[0].ticketUid).toBe("ticket-stable-1");
   });
 
+  it("reads requester name from its header rather than a fixed column", async () => {
+    const reordered = [...headers];
+    const nameIndex = reordered.indexOf("Full name");
+    reordered.splice(nameIndex, 1);
+    reordered.splice(3, 0, "Full name");
+    const values = row("11/7/2026 00:01:00");
+    values.splice(nameIndex, 1);
+    values.splice(3, 0, "Ana Test");
+    readTable.mockResolvedValue({ headers: reordered, rows: [values] });
+    const ticket = (await new GoogleSheetTicketRepository().listTickets())[0];
+    expect(ticket.requesterName).toBe("Ana Test");
+  });
+
   it("falls back to O/P when R:U metadata is blank", async () => {
     readTable.mockResolvedValue({ headers, rows: [row("11/7/2026 10:00:00", { 14: "TRUE", 15: "Jose" })] });
     const ticket = (await new GoogleSheetTicketRepository().listTickets())[0];

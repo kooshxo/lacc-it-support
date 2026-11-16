@@ -32,7 +32,7 @@ function columns(headers: unknown[]): Columns {
     department: find((v) => v.startsWith("department")), phone: find((v) => v.startsWith("phone"), false),
     extension: find((v) => v.startsWith("extension"), false), category: find((v) => v.startsWith("what do you need")),
     problem: find((v) => v.startsWith("describe your problem"), false), access: find((v) => v.startsWith("describe the badge"), false),
-    site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("full name /"), false),
+    site: find((v) => v.startsWith("site / building"), false), name: find((v) => v.startsWith("full name"), false),
     resolved: find((v) => v.startsWith("resolved"), false), staff: find((v) => v.startsWith("staff resolved"), false),
     ticketId: find((v) => v === "ticket id", false), status: find((v) => v === "status", false),
     resolvedAt: find((v) => v === "resolved at", false), resolution: find((v) => v === "resolution details", false), updatedAt: find((v) => v === "last updated at", false),
@@ -59,7 +59,7 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
     operationUid: "",
     requesterUid: requesterEmail || `requester-${sourceRow}`,
     requesterEmail,
-    requesterName: field(row, 1) || "Unidentified requester",
+    requesterName: field(row, c.name) || requesterEmail || "Unidentified requester",
     subject: needs || detail.slice(0, 100) || "IT support request",
     description: detail || needs || "No additional details supplied.",
     category: needs || "General IT",
@@ -84,7 +84,6 @@ function ticketFrom(row: unknown[], sourceRow: number, c: Columns): IntakeTicket
     completionTimestamp: resolvedAt,
   };
   ticket.status = statusFor(status, solved);
-  ticket.requesterName = field(row, c.name) || "Unidentified requester";
   return ticket;
 }
 

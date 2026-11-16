@@ -7,6 +7,7 @@ import { ticketCreateSchema, ticketUpdateSchema } from "@/lib/domain/schemas";
 import type { Ticket } from "@/lib/domain/models";
 import { getRepository } from "@/lib/excel";
 import { AuthorizationError, ConflictError, NotFoundError, WorkbookUnavailableError } from "@/lib/excel/repository";
+import { normalizeCompletedBy } from "@/lib/domain/staff-options";
 
 export type ActionState = { error?: string; fields?: Record<string, string>; savedVersion?: number; savedTicket?: Pick<Ticket, "status" | "priority" | "completedBy" | "resolutionNotes"> };
 
@@ -22,8 +23,13 @@ export async function createTicketAction(_state: ActionState, formData: FormData
 export async function updateTicketAction(ticketUid: string, ticketNumber: string, _state: ActionState, formData: FormData): Promise<ActionState> {
   const actor = await requireAgent();
   const completedBy = formData.get("completedBy");
-  const parsed = ticketUpdateSchema.safeParse({ expectedVersion: Number(formData.get("expectedVersion")), operationUid: String(formData.get("operationUid") || randomUUID()), status: formData.get("status") || undefined, priority: formData.get("priority") || undefined, completedBy: typeof completedBy === "string" ? completedBy : undefined, resolutionNotes: formData.get("resolutionNotes"), internalNote: formData.get("internalNote") });
+  const resolved = formData.get("resolved") === "on";
+  const currentStatus = String(formData.get("currentStatus") || "NEW");
+  const status = resolved ? "RESOLVED" : currentStatus === "RESOLVED" ? "IN_PROGRESS" : currentStatus;
+  const normalizedCompletedBy = normalizeCompletedBy(typeof completedBy === "string" ? completedBy : undefined);
+  const parsed = ticketUpdateSchema.safeParse({ expectedVersion: Number(formData.get("expectedVersion")), operationUid: String(formData.get("operationUid") || randomUUID()), status, priority: formData.get("priority") || undefined, completedBy: normalizedCompletedBy || undefined, internalNote: formData.get("internalNote") });
   if (!parsed.success) return { error: "The update contains an invalid value. Review the fields and try again." };
+  if (resolved && !normalizedCompletedBy) return { error: "Select who completed the ticket before marking it resolved." };
   try {
     const ticket = await getRepository().updateTicket(ticketUid, parsed.data, actor);
     revalidatePath(`/requests/${ticketNumber}`);
