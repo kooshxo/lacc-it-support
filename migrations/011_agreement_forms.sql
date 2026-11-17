@@ -12,5 +12,6 @@ CREATE TABLE IF NOT EXISTS inventory_agreement_forms (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE inventory_agreement_forms ADD COLUMN IF NOT EXISTS expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days');
 CREATE INDEX IF NOT EXISTS inventory_agreement_forms_asset_idx ON inventory_agreement_forms(asset_id, created_at DESC);
 COMMIT;
