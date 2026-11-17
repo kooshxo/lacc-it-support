@@ -2,3 +2,4 @@
 .env.*.local
 .env.google-sheets-test.local
 .vercel
+.next-e2e-*

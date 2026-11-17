@@ -32,6 +32,16 @@ describe("runtime storage safety", () => {
     expect(() => assertSafeSpreadsheetConfiguration()).toThrow(/explicit Preview or Production/);
   });
 
+  it("permits only loopback SQL endpoints for local development and tests", () => {
+    Reflect.set(process.env, "NODE_ENV", "development");
+    delete process.env.VERCEL_ENV;
+    expect(() => assertSafeSqlConfiguration("postgresql://test@127.0.0.1:5432/lacc_test")).not.toThrow();
+    expect(() => assertSafeSqlConfiguration("postgresql://test@db.example.invalid/lacc_test")).toThrow(/explicit Preview or Production/);
+    Reflect.set(process.env, "NODE_ENV", "production");
+    process.env.VERCEL_ENV = "preview";
+    expect(() => assertSafeSqlConfiguration("postgresql://test@127.0.0.1:5432/lacc_test")).toThrow(/approved Neon endpoint/);
+  });
+
   it("rejects a non-Preview Neon host in Preview", () => {
     process.env.VERCEL_ENV = "preview";
     expect(() => assertSafeSqlConfiguration("postgresql://user:pass@production.example/neondb")).toThrow(/approved Neon endpoint/);

@@ -36,6 +36,10 @@ export function assertSafeSqlConfiguration(connectionString: string) {
   } catch {
     throw new Error("Preview SQL storage has an invalid connection URL.");
   }
+  // Local development and disposable integration tests may use loopback only.
+  // Deployed runtimes set NODE_ENV=production and still require an approved
+  // Neon host plus an explicit Vercel environment below.
+  if (process.env.NODE_ENV !== "production" && ["localhost", "127.0.0.1", "::1"].includes(host)) return;
   const environment = runtimeEnvironment();
   const allowedHosts = environment === "preview" ? previewSqlHosts : productionSqlHosts;
   if (!allowedHosts.has(host)) throw new Error(`${environment === "preview" ? "Preview" : "Production"} SQL storage must use the approved Neon endpoint.`);

@@ -15,10 +15,12 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       DATA_BACKEND: "sql",
+      TICKET_BACKEND: "sql",
       APP_DATABASE_URL: process.env.TEST_TICKETS_DATABASE_URL ?? "",
       AUTH_BYPASS: "true",
       AUTH_SECRET: "local-ticket-management-test-secret",
       DEMO_USER_EMAIL: "agent@thelatincenter.org",
+      NEXT_DIST_DIR: ".next-e2e-management",
       PORT: "3101",
     },
   },

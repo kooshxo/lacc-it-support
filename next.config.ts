@@ -15,6 +15,9 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // Keep isolated Playwright roles from sharing Next's development lock/cache.
+  // Vercel and normal local runs retain the default .next directory.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   async headers() {
     return [{ source: "/(.*)", headers: [
