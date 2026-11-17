@@ -24,6 +24,14 @@ const nextConfig: NextConfig = {
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
       { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+    ] }, { source: "/agreement", headers: [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Cache-Control", value: "private, no-store, max-age=0" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+    ] }, { source: "/agreement/:path*", headers: [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Cache-Control", value: "private, no-store, max-age=0" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
     ] }];
   },
 };
