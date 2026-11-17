@@ -5,16 +5,21 @@ import { revalidatePath } from 'next/cache';
 import { requireAgent } from '@/lib/authz';
 import { createAsset,createInventoryIssue,mutateAsset,resolveInventoryIssue } from '@/lib/inventory/repository';
 import { ConflictError } from '@/lib/excel/repository';
+import { createAgreementForm, updateAgreementTracking } from '@/lib/sql/agreements';
 const text=z.string().trim().max(8000);
 const fields=z.object({category:text,manufacturer:text,model:text,serial_number:text,phone_number:text,service_tag:text,inventory_number:text,device_hostname:text,department:text,building:text,room:text,usage_location:text,condition:text,description:text,accessories:text,notes:text,inventory_date:z.union([z.literal(''),z.iso.date()]),purchase_date:z.union([z.literal(''),z.iso.date()]),warranty_expiration:z.union([z.literal(''),z.iso.date()]),purchase_cost:z.union([z.literal(''),z.coerce.number().nonnegative().finite()]),forticlient_installed:z.union([z.literal(''),z.literal('0'),z.literal('1')]).transform(value=>value===''?'':Number(value)),retirement_reason:text});
 export async function inventoryAction(form:FormData){
  const actor=await requireAgent();if(process.env.DATA_BACKEND!=='sql')throw new Error('SQL inventory is not enabled.');
- const raw=Object.fromEntries(form),operation=z.enum(['create','save','assign','return','retire','agreement','issue','resolve_issue']).parse(raw.operation);raw.acknowledgement_required??='';raw.agreement_signed??='';
+ const raw=Object.fromEntries(form),operation=z.enum(['create','save','assign','return','retire','agreement','create_agreement','mark_printed','mark_handed_off','issue','resolve_issue']).parse(raw.operation);raw.acknowledgement_required??='';raw.agreement_signed??='';
  let id=String(raw.id||''),target='/inventory';
  try{
   if(operation==='create'){const data=fields.parse(raw),code=z.string().trim().min(1).max(80).parse(raw.asset_code);id=await createAsset({...data,asset_code:code},actor.employeeUid);target=`/inventory/${encodeURIComponent(id)}`;}
   else if(operation==='resolve_issue'){
    const values=z.object({issue_id:z.string().min(1).max(100),resolution:z.string().trim().min(1).max(8000)}).parse(raw);await resolveInventoryIssue(values.issue_id,actor.employeeUid,values.resolution);target='/inventory/issues';
+  }else if(operation==='create_agreement'){
+   const created=await createAgreementForm(id,z.string().min(1).parse(raw.person_id),{asset_code:raw.asset_code||'',person_name:raw.person_name||'',serial_number:raw.serial_number||'',model:raw.model||''}); target=`/inventory/agreements?created=${encodeURIComponent(created.token)}`;
+  }else if(operation==='mark_printed'||operation==='mark_handed_off'){
+   await updateAgreementTracking(z.string().min(1).parse(raw.agreement_id),operation==='mark_printed'?'printed_at':'handed_off_at'); target='/inventory/agreements';
   }else{
    const version=z.coerce.number().int().positive().parse(raw.version);if(!id)throw new Error('Missing asset ID.');
    if(operation==='issue'){
