@@ -7,7 +7,11 @@ test("IT navigation stays light and retains the New Hire Setup management tab", 
   await expect(sidebar).not.toHaveClass(/bg-slate-950/);
 
   if (test.info().project.name === "mobile") {
-    await page.getByRole("button", { name: "Open navigation" }).click();
+    const navigationButton = page.getByRole("button", { name: "Open navigation" });
+    await expect(navigationButton).toHaveCSS("position", "fixed");
+    await expect(navigationButton).toHaveCSS("top", "8px");
+    await expect(navigationButton).toHaveCSS("right", "64px");
+    await navigationButton.click();
     const mobileNavigation = page.getByRole("navigation", { name: "Mobile navigation" });
     await expect(mobileNavigation.getByRole("link", { name: "New Hire Setup / Nuevas contrataciones" })).toBeVisible();
   } else {
