@@ -19,6 +19,8 @@ export async function POST(request:Request){
   if(!signer.valid)return NextResponse.json({error:"Enter your full name (up to 200 characters) and confirm the electronic-signature consent."},{status:400,headers});
   const available=await consumeAgreementSignAttempt(token);
   if(!available)return NextResponse.json({error:"This agreement link is unavailable, expired, already signed, revoked, or has reached its attempt limit. Contact LACC IT for help."},{status:409,headers});
-  const signedAt=await signAgreement(token,signer.normalizedName);
-  return signedAt?NextResponse.json({ok:true,signedAt,signerName:signer.normalizedName},{headers}):NextResponse.json({error:"This agreement is no longer pending. Contact LACC IT for help."},{status:409,headers});
+  const signed=await signAgreement(token,signer.normalizedName);
+  return signed
+    ?NextResponse.json({ok:true,signedAt:signed.signedAt,signerName:signed.signerName},{headers})
+    :NextResponse.json({error:"This agreement is no longer pending. Contact LACC IT for help."},{status:409,headers});
 }
