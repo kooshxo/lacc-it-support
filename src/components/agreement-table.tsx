@@ -13,6 +13,17 @@ const badge:Record<string,string>={PENDING:"border-amber-700 bg-amber-50 text-am
 function date(value:string|null){return value?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)):"—";}
 function label(row:Row){if(row.status==="COMPLETED")return "Completed · electronically signed";const next=agreementNextAction({status:row.status as "PENDING"|"SIGNED"|"PRINTED"|"HANDED_OFF"|"COMPLETED",expiresAt:row.expires_at,revokedAt:row.revoked_at});return ({REVOKED:"Revoked",EXPIRED:"Expired",AWAITING_SIGNATURE:"Pending",PRINT:"Signed · legacy",HAND_OFF:"Printed · legacy",COMPLETE:"Handed off · legacy"} as const)[next];}
 
+function AgreementRowActions({row}:{row:Row}){
+  return <div className="flex flex-col items-start gap-2">
+    {row.status==="SIGNED"&&<form action={inventoryAction}><input type="hidden" name="operation" value="mark_printed"/><input type="hidden" name="agreement_id" value={row.id}/><button className="min-h-10 rounded-md bg-primary px-3 font-medium text-primary-foreground">Mark as printed (legacy)</button></form>}
+    {row.status==="PRINTED"&&<form action={inventoryAction}><input type="hidden" name="operation" value="mark_handed_off"/><input type="hidden" name="agreement_id" value={row.id}/><button className="min-h-10 rounded-md border px-3 font-medium">Mark handed off (legacy)</button></form>}
+    {row.status==="PENDING"&&!row.revoked_at&&!row.is_expired&&<><span className="text-sm text-muted-foreground">Waiting for employee signature</span><AgreementRevokeForm agreementId={row.id} compact/></>}
+    {(row.status==="COMPLETED"||row.status==="SIGNED"||row.status==="PRINTED"||row.status==="HANDED_OFF")&&<Link className="inline-flex min-h-10 items-center font-medium underline underline-offset-4" href={`/inventory/agreements/${encodeURIComponent(row.id)}`}>{row.status==="COMPLETED"?"View signed PDF":"View historical record"}</Link>}
+    {row.status==="PENDING"&&<Link className="inline-flex min-h-10 items-center font-medium underline underline-offset-4" href={`/inventory/agreements/${encodeURIComponent(row.id)}`}>View record</Link>}
+    {row.status==="PENDING"&&(row.is_expired||row.revoked_at)&&<Link className="inline-flex min-h-10 items-center font-medium underline underline-offset-4" href={`/inventory/${encodeURIComponent(row.asset_id)}`}>Create a new link</Link>}
+  </div>;
+}
+
 export function AgreementTable({rows}:{rows:Row[]}){
   const [query,setQuery]=useState("");
   const [status,setStatus]=useState<(typeof statuses)[number]>("ALL");
@@ -29,13 +40,24 @@ export function AgreementTable({rows}:{rows:Row[]}){
       <label className="grid gap-1 text-sm font-medium">Status<select className="min-h-11 rounded-md border bg-background px-3 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={status} onChange={e=>setStatus(e.target.value as (typeof statuses)[number])}>{statuses.map(value=><option key={value} value={value}>{value.replaceAll("_"," ")}</option>)}</select></label>
       <label className="grid gap-1 text-sm font-medium">Sort by<select className="min-h-11 rounded-md border bg-background px-3 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={sort} onChange={e=>setSort(e.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label>
     </div>
-    <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-muted/70"><tr>{["Employee","Equipment","Status","Created","Signed","Link expires","Next action"].map(value=><th className="p-3 font-semibold" key={value}>{value}</th>)}</tr></thead><tbody>
+    <div className="grid gap-3 border-t p-3 md:hidden" aria-label="Agreements">
+      {visible.map(row=>{const statusLabel=label(row),statusKey=statusLabel.toUpperCase().replaceAll(" ","_");return <article className="min-w-0 rounded-lg border bg-background p-4" key={row.id}>
+        <h2 className="break-words font-semibold">{String(row.data.person_name||"Unknown employee")}</h2>
+        <p className="mt-1 break-all text-sm text-muted-foreground">{String(row.data.person_email||"")}</p>
+        <p className="mt-3 break-words font-medium">{String(row.data.asset_code||row.asset_id)}</p>
+        <p className="break-words text-sm text-muted-foreground">{[row.data.manufacturer,row.data.model,row.data.serial_number].filter(Boolean).join(" · ")}</p>
+        <span className={`mt-3 inline-flex min-h-8 items-center rounded-full border px-3 text-sm font-medium ${badge[statusKey]||"border-border bg-muted text-foreground"}`}>{statusLabel}</span>
+        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm"><div><dt className="text-muted-foreground">Created</dt><dd>{date(row.created_at)}</dd></div><div><dt className="text-muted-foreground">Signed</dt><dd>{date(row.signed_at)}</dd></div><div className="col-span-2"><dt className="text-muted-foreground">Link expires</dt><dd>{date(row.expires_at)}</dd></div></dl>
+        <div className="mt-3 border-t pt-3"><AgreementRowActions row={row}/></div>
+      </article>;})}
+    </div>
+    <div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-muted/70"><tr>{["Employee","Equipment","Status","Created","Signed","Link expires","Next action"].map(value=><th className="p-3 font-semibold" key={value}>{value}</th>)}</tr></thead><tbody>
       {visible.map(row=>{const statusLabel=label(row),statusKey=statusLabel.toUpperCase().replaceAll(" ","_");return <tr className="border-t align-top" key={row.id}>
         <td className="p-3 font-medium">{String(row.data.person_name||"Unknown employee")}<span className="mt-1 block text-xs text-muted-foreground">{String(row.data.person_email||"")}</span></td>
         <td className="p-3">{String(row.data.asset_code||row.asset_id)}<span className="mt-1 block text-xs text-muted-foreground">{[row.data.manufacturer,row.data.model,row.data.serial_number].filter(Boolean).join(" · ")}</span></td>
         <td className="p-3"><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 font-medium ${badge[statusKey]||"border-border bg-muted text-foreground"}`}>{statusLabel}</span></td>
-        <td className="p-3 whitespace-nowrap">{date(row.created_at)}</td><td className="p-3 whitespace-nowrap">{date(row.signed_at)}</td><td className="p-3 whitespace-nowrap">{date(row.expires_at)}</td>
-        <td className="p-3"><div className="flex flex-col items-start gap-2">{row.status==="SIGNED"&&<form action={inventoryAction}><input type="hidden" name="operation" value="mark_printed"/><input type="hidden" name="agreement_id" value={row.id}/><button className="min-h-10 rounded-md bg-primary px-3 font-medium text-primary-foreground">Mark as printed (legacy)</button></form>}{row.status==="PRINTED"&&<form action={inventoryAction}><input type="hidden" name="operation" value="mark_handed_off"/><input type="hidden" name="agreement_id" value={row.id}/><button className="min-h-10 rounded-md border px-3 font-medium">Mark handed off (legacy)</button></form>}{row.status==="PENDING"&&!row.revoked_at&&!row.is_expired&&<><span className="text-muted-foreground">Waiting for employee signature</span><AgreementRevokeForm agreementId={row.id} compact/></>}{(row.status==="COMPLETED"||row.status==="SIGNED"||row.status==="PRINTED"||row.status==="HANDED_OFF")&&<Link className="min-h-10 inline-flex items-center font-medium underline underline-offset-4" href={`/inventory/agreements/${encodeURIComponent(row.id)}`}>{row.status==="COMPLETED"?"View signed PDF":"View historical record"}</Link>}{row.status==="PENDING"&&<Link className="min-h-10 inline-flex items-center font-medium underline underline-offset-4" href={`/inventory/agreements/${encodeURIComponent(row.id)}`}>View record</Link>}{(row.status==="PENDING"&&(row.is_expired||row.revoked_at))&&<Link className="min-h-10 inline-flex items-center font-medium underline underline-offset-4" href={`/inventory/${encodeURIComponent(row.asset_id)}`}>Create a new link</Link>}</div></td>
+        <td className="whitespace-nowrap p-3">{date(row.created_at)}</td><td className="whitespace-nowrap p-3">{date(row.signed_at)}</td><td className="whitespace-nowrap p-3">{date(row.expires_at)}</td>
+        <td className="p-3"><AgreementRowActions row={row}/></td>
       </tr>;})}
     </tbody></table></div>
     {visible.length===0&&<p className="p-8 text-center text-muted-foreground">{rows.length?"No agreements match these filters.":"No equipment agreements yet. Open an assigned asset and choose “Create agreement.”"}</p>}
