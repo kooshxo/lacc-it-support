@@ -5,8 +5,9 @@ vi.mock("@/lib/config/runtime-safety",()=>({assertSafeSqlConfiguration:vi.fn()})
 
 import { Pool } from "pg";
 import { readFile } from "node:fs/promises";
+import { PDFDocument } from "pdf-lib";
 import { database } from "@/lib/sql/client";
-import { createAgreementForCurrentAssignment, consumeAgreementAccessAttempt, consumeAgreementSignAttempt, getAgreementById, getAgreementByToken, isAgreementStorageReady, listAgreementForms, revokePendingAgreement, signAgreement, updateAgreementTracking } from "@/lib/sql/agreements";
+import { createAgreementForCurrentAssignment, consumeAgreementAccessAttempt, consumeAgreementSignAttempt, getAgreementById, getAgreementByToken, getSignedAgreementPdf, isAgreementStorageReady, listAgreementEvents, listAgreementForms, revokePendingAgreement, signAgreement, updateAgreementTracking } from "@/lib/sql/agreements";
 
 const url=process.env.TEST_AGREEMENTS_DATABASE_URL;
 const describePg=url?describe:describe.skip;
@@ -14,107 +15,119 @@ const pool=url?new Pool({connectionString:url,max:4}):undefined;
 const assetId="asset-agreement-test";
 const personId="person-agreement-test";
 const assignmentId="custody-agreement-test";
+const create=()=>createAgreementForCurrentAssignment(assetId,"synthetic-it","Synthetic IT");
 
 describePg("equipment agreement SQL lifecycle",()=>{
   beforeAll(async()=>{
     const connection=new URL(url!);
     if(!["localhost","127.0.0.1","::1"].includes(connection.hostname)||!/^\/lacc_agreements_test(?:_[a-z0-9_]+)?$/.test(connection.pathname))throw new Error("Refusing agreement integration tests outside a dedicated local lacc_agreements_test database.");
-    process.env.APP_DATABASE_URL=url!;process.env.DATA_BACKEND="sql";process.env.VERCEL_ENV="preview";
+    process.env.APP_DATABASE_URL=url!;process.env.DATA_BACKEND="sql";process.env.VERCEL_ENV="preview";process.env.ELECTRONIC_AGREEMENTS_ENABLED="true";
     await pool!.query("CREATE TABLE IF NOT EXISTS inventory_assets(id text PRIMARY KEY,data jsonb NOT NULL)");
     await pool!.query("CREATE TABLE IF NOT EXISTS inventory_people(id text PRIMARY KEY,data jsonb NOT NULL)");
     await pool!.query("CREATE TABLE IF NOT EXISTS inventory_custody(id text PRIMARY KEY,asset_id text NOT NULL REFERENCES inventory_assets(id),person_id text NOT NULL REFERENCES inventory_people(id),returned_at timestamptz,data jsonb NOT NULL)");
     const migration=await readFile(new URL("../../migrations/011_agreement_forms.sql",import.meta.url),"utf8");
-    await pool!.query(migration);
-    await pool!.query(migration);
+    await pool!.query(migration);await pool!.query(migration);
     await pool!.query("DROP TABLE inventory_agreement_forms CASCADE");
     await pool!.query("CREATE TABLE inventory_agreement_forms(id text PRIMARY KEY,token_hash text NOT NULL UNIQUE,asset_id text NOT NULL REFERENCES inventory_assets(id),person_id text NOT NULL REFERENCES inventory_people(id),data jsonb NOT NULL,status text NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','SIGNED','PRINTED','HANDED_OFF')),signed_at timestamptz,printed_at timestamptz,handed_off_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now())");
     await pool!.query("INSERT INTO inventory_people(id,data) VALUES('legacy-person',$1)",[JSON.stringify({full_name:"Legacy Synthetic Person"})]);
     await pool!.query("INSERT INTO inventory_assets(id,data) VALUES('legacy-asset',$1)",[JSON.stringify({asset_code:"LEGACY-KEEP"})]);
     await pool!.query("INSERT INTO inventory_agreement_forms(id,token_hash,asset_id,person_id,data,status,signed_at,created_at) VALUES('legacy-agreement','legacy-hash','legacy-asset','legacy-person',$1,'SIGNED','2026-10-01T12:00:00.000Z','2026-10-01T12:00:00.000Z')",[JSON.stringify({legacy:"preserve-me"})]);
     await pool!.query(migration);
+    await pool!.query(await readFile(new URL("../../migrations/012_signed_agreement_documents.sql",import.meta.url),"utf8"));
     const upgraded=(await pool!.query<{data:Record<string,unknown>;terms_version:string;sign_attempts:number;access_attempts:number;expires_at:Date;status:string;signed_at:Date}>("SELECT data,terms_version,sign_attempts,access_attempts,expires_at,status,signed_at FROM inventory_agreement_forms WHERE id='legacy-agreement'")).rows[0];
     expect(upgraded).toMatchObject({data:{legacy:"preserve-me"},terms_version:"LEGACY-UNVERSIONED",sign_attempts:0,access_attempts:0,status:"SIGNED"});
     expect(new Date(upgraded.expires_at).toISOString()).toBe("2026-10-08T12:00:00.000Z");
     expect(new Date(upgraded.signed_at).toISOString()).toBe("2026-10-01T12:00:00.000Z");
   });
   beforeEach(async()=>{
-    await pool!.query("TRUNCATE inventory_agreement_forms,inventory_custody,inventory_assets,inventory_people CASCADE");
+    await pool!.query("TRUNCATE inventory_agreement_events,inventory_agreement_forms,inventory_custody,inventory_assets,inventory_people CASCADE");
     await pool!.query("INSERT INTO inventory_people(id,data) VALUES($1,$2)",[personId,JSON.stringify({full_name:"Synthetic Staff Member",email:"synthetic@example.invalid",is_active:true})]);
-    await pool!.query("INSERT INTO inventory_assets(id,data) VALUES($1,$2)",[assetId,JSON.stringify({asset_code:"TEST-AGR-001",manufacturer:"Example",model:"Laptop",serial_number:"SYNTHETIC-SERIAL",inventory_number:"SYNTHETIC-INVENTORY",current_assignment_id:assignmentId})]);
+    await pool!.query("INSERT INTO inventory_assets(id,data) VALUES($1,$2)",[assetId,JSON.stringify({asset_code:"TEST-AGR-001",category:"Laptop",manufacturer:"Example",model:"Laptop",serial_number:"SYNTHETIC-SERIAL",inventory_number:"SYNTHETIC-INVENTORY",current_assignment_id:assignmentId})]);
     await pool!.query("INSERT INTO inventory_custody(id,asset_id,person_id,returned_at,data) VALUES($1,$2,$3,NULL,$4)",[assignmentId,assetId,personId,JSON.stringify({issue_date:"2026-11-17",expected_return_date:null})]);
   });
   afterAll(async()=>{
-    await pool?.query("TRUNCATE inventory_agreement_forms,inventory_custody,inventory_assets,inventory_people CASCADE").catch(()=>{});
+    await pool?.query("TRUNCATE inventory_agreement_events,inventory_agreement_forms,inventory_custody,inventory_assets,inventory_people CASCADE").catch(()=>{});
     await pool?.end();
     const appPool=database() as Pool;
     await appPool.end().catch(()=>{});
   });
 
-  it("creates from the current assignment, snapshots approved terms, and signs only once",async()=>{
+  it("creates, signs, stores and verifies an immutable flattened PDF, then marks custody acknowledged",async()=>{
     expect(await isAgreementStorageReady()).toBe(true);
-    const created=await createAgreementForCurrentAssignment(assetId);
+    const created=await create();
     expect(created.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(created.data).toMatchObject({asset_code:"TEST-AGR-001",person_name:"Synthetic Staff Member",serial_number:"SYNTHETIC-SERIAL"});
-    expect(created.expiresAt).toBeTruthy();
     const stored=(await pool!.query<{token_hash:string;terms_version:string;data:Record<string,unknown>}>("SELECT token_hash,terms_version,data FROM inventory_agreement_forms WHERE id=$1",[created.id])).rows[0];
     expect(stored.token_hash).not.toBe(created.token);
     expect(stored.terms_version).toMatch(/^LACC-LAPTOP-ACKNOWLEDGEMENT-/);
     expect(stored.data.terms_text).toContain("Latin American Community Center");
     expect(await consumeAgreementSignAttempt(created.token)).toBe(true);
-    expect(Date.parse((await signAgreement(created.token,"Synthetic Signer"))||"")).not.toBeNaN();
+    const signed=await signAgreement(created.token,"Synthetic Signer");
+    expect(signed).toMatchObject({signerName:"Synthetic Signer"});
+    expect(Date.parse(signed!.signedAt)).not.toBeNaN();
     expect(await signAgreement(created.token,"Second Signer")).toBeNull();
-    expect(await getAgreementByToken(created.token)).toMatchObject({status:"SIGNED",data:{signer_name:"Synthetic Signer"}});
-    await updateAgreementTracking(created.id,"printed_at","synthetic-it-actor");
-    await updateAgreementTracking(created.id,"handed_off_at","synthetic-handoff-actor");
-    const row=await getAgreementById(created.id);
-    expect(row).toMatchObject({status:"HANDED_OFF",printed_by:"synthetic-it-actor",handed_off_by:"synthetic-handoff-actor"});
-    expect(Date.parse(row!.signed_at!)).not.toBeNaN();
-    expect(Date.parse(row!.printed_at!)).not.toBeNaN();
-    expect(Date.parse(row!.handed_off_at!)).not.toBeNaN();
+    const pdf=await getSignedAgreementPdf(created.id);
+    expect(pdf?.sha256).toBe(signed!.documentSha256);
+    const parsedPdf=await PDFDocument.load(pdf!.bytes);
+    expect(parsedPdf.getPageCount()).toBe(1);
+    expect(parsedPdf.getPage(0).getWidth()).toBe(612);
+    expect((await listAgreementEvents(created.id)).map(event=>event.event_type)).toEqual(["LINK_CREATED","ELECTRONICALLY_SIGNED"]);
+    const custody=(await pool!.query<{data:Record<string,unknown>}>("SELECT data FROM inventory_custody WHERE id=$1",[assignmentId])).rows[0].data;
+    expect(custody.agreement_signed).toBe(true);
+    expect(custody.agreement_signed_date).toBe(new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(signed!.signedAt)));
+    expect(await getAgreementByToken(created.token)).toMatchObject({status:"COMPLETED",data:{signer_name:"Synthetic Signer"},signature_consent:true,signed_pdf_sha256:signed!.documentSha256});
+    await expect(pool!.query("UPDATE inventory_agreement_forms SET signed_pdf_sha256=$2 WHERE id=$1",[created.id,"0".repeat(64)])).rejects.toThrow("The signed agreement document is immutable.");
+    await expect(pool!.query("UPDATE inventory_agreement_forms SET data=data||'{\"person_name\":\"Tampered\"}'::jsonb WHERE id=$1",[created.id])).rejects.toThrow("The signed agreement document is immutable.");
+    await expect(pool!.query("UPDATE inventory_agreement_events SET actor_label='Tampered' WHERE agreement_id=$1 AND event_type='ELECTRONICALLY_SIGNED'",[created.id])).rejects.toThrow("Agreement history is append-only.");
+    await expect(pool!.query("DELETE FROM inventory_agreement_forms WHERE id=$1",[created.id])).rejects.toThrow("A signed agreement record cannot be deleted.");
+    expect(await getAgreementById(created.id)).toMatchObject({status:"COMPLETED",printed_by:null,handed_off_by:null});
   });
 
-  it("rejects out-of-order transitions, expires links, and revokes only active pending links",async()=>{
-    const created=await createAgreementForCurrentAssignment(assetId);
-    await expect(updateAgreementTracking(created.id,"printed_at","synthetic-it-actor")).rejects.toThrow("Only signed agreements can be printed.");
+  it("refuses to issue a laptop letter for a non-laptop assignment",async()=>{
+    await pool!.query("UPDATE inventory_assets SET data=jsonb_set(data,'{category}','\"Phone\"'::jsonb) WHERE id=$1",[assetId]);
+    await expect(create()).rejects.toThrow("Laptop agreements are only available for laptop assets.");
+    expect((await pool!.query("SELECT count(*) FROM inventory_agreement_forms")).rows[0].count).toBe("0");
+  });
+
+  it("preserves the legacy paper status workflow for existing agreements only",async()=>{
+    await pool!.query("INSERT INTO inventory_agreement_forms(id,token_hash,asset_id,person_id,data,status,expires_at) VALUES('legacy-paper-test','legacy-paper-token',$1,$2,$3,'SIGNED',now()+interval '7 days')",[assetId,personId,JSON.stringify({person_name:"Synthetic Staff Member",asset_code:"TEST-AGR-001"})]);
+    await updateAgreementTracking("legacy-paper-test","printed_at","synthetic-it","Synthetic IT");
+    await updateAgreementTracking("legacy-paper-test","handed_off_at","synthetic-it","Synthetic IT");
+    expect(await getAgreementById("legacy-paper-test")).toMatchObject({status:"HANDED_OFF",printed_by:"synthetic-it",handed_off_by:"synthetic-it"});
+    expect((await listAgreementEvents("legacy-paper-test")).map(event=>event.event_type)).toEqual(["LEGACY_PRINTED","LEGACY_HANDED_OFF"]);
+  });
+
+  it("expires and revokes links, and refuses signatures after custody has ended",async()=>{
+    const created=await create();
     expect(await getAgreementByToken(created.token)).not.toBeNull();
-    await revokePendingAgreement(created.id,"synthetic-admin");
+    await revokePendingAgreement(created.id,"synthetic-admin","Synthetic Admin");
     expect(await getAgreementByToken(created.token)).toBeNull();
     expect(await consumeAgreementSignAttempt(created.token)).toBe(false);
-    await expect(revokePendingAgreement(created.id,"synthetic-admin")).rejects.toThrow("Only an active pending agreement link can be revoked.");
-    const reissued=await createAgreementForCurrentAssignment(assetId);
-    expect(reissued.token).not.toBe(created.token);
-    expect(await getAgreementByToken(reissued.token)).toMatchObject({status:"PENDING"});
-    const expired=await createAgreementForCurrentAssignment(assetId);
+    await expect(revokePendingAgreement(created.id,"synthetic-admin","Synthetic Admin")).rejects.toThrow("Only an active pending agreement link can be revoked.");
+    const expired=await create();
     await pool!.query("UPDATE inventory_agreement_forms SET expires_at=now()-interval '1 second' WHERE id=$1",[expired.id]);
     expect(await getAgreementByToken(expired.token)).toBeNull();
     expect(await consumeAgreementSignAttempt(expired.token)).toBe(false);
+    const stale=await create();
+    await consumeAgreementSignAttempt(stale.token);
+    await pool!.query("UPDATE inventory_custody SET returned_at=now() WHERE id=$1",[assignmentId]);
+    expect(await signAgreement(stale.token,"Synthetic Signer")).toBeNull();
   });
 
-  it("enforces the bounded signing-attempt count and rejects stale assignment data",async()=>{
-    const created=await createAgreementForCurrentAssignment(assetId);
-    for(let i=0;i<5;i++)expect(await consumeAgreementSignAttempt(created.token)).toBe(true);
-    expect(await consumeAgreementSignAttempt(created.token)).toBe(false);
-    expect(Date.parse((await signAgreement(created.token,"Synthetic Signer"))||"")).not.toBeNaN();
-    const staleAsset=await pool!.query("UPDATE inventory_custody SET returned_at=now() WHERE id=$1",[assignmentId]);
-    expect(staleAsset.rowCount).toBe(1);
-    await expect(createAgreementForCurrentAssignment(assetId)).rejects.toThrow("The equipment assignment is no longer active.");
-  });
-
-  it("bounds repeated public agreement reads per bearer link",async()=>{
-    const created=await createAgreementForCurrentAssignment(assetId);
+  it("bounds public reads and signing attempts",async()=>{
+    const created=await create();
     for(let i=0;i<50;i++)expect(await consumeAgreementAccessAttempt(created.token)).toBe(true);
     expect(await consumeAgreementAccessAttempt(created.token)).toBe(false);
+    for(let i=0;i<5;i++)expect(await consumeAgreementSignAttempt(created.token)).toBe(true);
+    expect(await consumeAgreementSignAttempt(created.token)).toBe(false);
   });
 
-  it("serializes concurrent signing and rejects duplicate print/handoff transitions",async()=>{
-    const created=await createAgreementForCurrentAssignment(assetId);
+  it("serializes simultaneous signatures and records one signature event",async()=>{
+    const created=await create();
     await consumeAgreementSignAttempt(created.token);
     const signatures=await Promise.all([signAgreement(created.token,"First Signer"),signAgreement(created.token,"Second Signer")]);
     expect(signatures.filter(Boolean)).toHaveLength(1);
-    await updateAgreementTracking(created.id,"printed_at","synthetic-it-actor");
-    await expect(updateAgreementTracking(created.id,"printed_at","synthetic-it-actor")).rejects.toThrow("Only signed agreements can be printed.");
-    await updateAgreementTracking(created.id,"handed_off_at","synthetic-it-actor");
-    await expect(updateAgreementTracking(created.id,"handed_off_at","synthetic-it-actor")).rejects.toThrow("Mark the agreement printed before handoff.");
+    expect((await listAgreementEvents(created.id)).filter(event=>event.event_type==="ELECTRONICALLY_SIGNED")).toHaveLength(1);
     expect((await listAgreementForms())).toHaveLength(1);
   });
 });

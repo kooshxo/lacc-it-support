@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agreementNextAction, canMarkAgreementHandedOff, canMarkAgreementPrinted, isValidAgreementToken, validateSignerInput } from "@/lib/sql/agreement-state";
+import { agreementNextAction, canMarkAgreementHandedOff, canMarkAgreementPrinted, isLaptopAgreementCategory, isValidAgreementToken, laptopAgreementTerms, validateSignerInput } from "@/lib/sql/agreement-state";
 
 describe("equipment agreement lifecycle helpers",()=>{
   const expiresAt="2026-11-24T17:00:00.000Z";
@@ -29,5 +29,16 @@ describe("equipment agreement lifecycle helpers",()=>{
     expect(isValidAgreementToken("A".repeat(43))).toBe(true);
     expect(isValidAgreementToken("A".repeat(42))).toBe(false);
     expect(isValidAgreementToken(`${"A".repeat(42)}.`)).toBe(false);
+  });
+  it("limits the supervisor-approved letter to laptops and reproduces its terms with assigned device details",()=>{
+    expect(isLaptopAgreementCategory(" Laptop ")).toBe(true);
+    for (const category of ["Phone", "Mobile phone", "Tablet", "Desktop", "Laptop bag", null]) {
+      expect(isLaptopAgreementCategory(category)).toBe(false);
+    }
+    const text=laptopAgreementTerms();
+    expect(text).toContain("property of the Latin American Community Center.\n\nThis Agency Laptop is to be used only for purposes relating to my work at the LACC.");
+    expect(text).toContain("I understand that I must return this Laptop, cellular, my office keys, and my LACC Agency ID upon ending my employment at the Latin American Community Center.");
+    expect(text).not.toContain("the equipment identified above");
+    expect(text).not.toContain("This equipment is property of");
   });
 });
