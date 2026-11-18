@@ -3,6 +3,15 @@ import { PDFDocument, PDFFont, StandardFonts, rgb } from "pdf-lib";
 export const LAPTOP_TEMPLATE_URL = "/templates/lacc-laptop-letter-background.jpg";
 export const ELECTRONIC_SIGNATURE_CONSENT_TEXT = "I agree that typing my full name and submitting this form is my electronic signature for this agreement.";
 
+// Coordinates are measured against the approved one-page letter background.
+// Keep the employee mark inside its signature rule and clear of the adjacent
+// Date label, which is part of the original template image.
+export const SIGNED_PDF_FIELD_LAYOUT = {
+  signature: { coverX: 245, coverWidth: 166, textX: 252, textWidth: 155 },
+  date: { coverX: 470, coverWidth: 97, textX: 472, textWidth: 94 },
+  dateLabelStart: 421,
+} as const;
+
 export type LaptopAgreementPdfData = {
   person_name?: unknown;
   manufacturer?: unknown;
@@ -87,15 +96,15 @@ export async function renderLaptopAgreementPdf(
 
   if (options.signerName && options.signedAt) {
     const signer = value(options.signerName);
-    const signSize = fitSize(signatureFont, signer, 176, 16, 9);
+    const signSize = fitSize(signatureFont, signer, SIGNED_PDF_FIELD_LAYOUT.signature.textWidth, 14, 8);
     // Cover only the original blank signature/date rules so flattened marks
     // sit cleanly above them; labels and witness fields remain intact.
-    page.drawRectangle({ x: 245, y: 294, width: 190, height: 25, color: rgb(1, 1, 1) });
-    page.drawRectangle({ x: 470, y: 294, width: 97, height: 25, color: rgb(1, 1, 1) });
-    page.drawText(signer, { x: 252, y: 301, size: signSize, font: signatureFont, color: black });
+    page.drawRectangle({ x: SIGNED_PDF_FIELD_LAYOUT.signature.coverX, y: 294, width: SIGNED_PDF_FIELD_LAYOUT.signature.coverWidth, height: 25, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: SIGNED_PDF_FIELD_LAYOUT.date.coverX, y: 294, width: SIGNED_PDF_FIELD_LAYOUT.date.coverWidth, height: 25, color: rgb(1, 1, 1) });
+    page.drawText(signer, { x: SIGNED_PDF_FIELD_LAYOUT.signature.textX, y: 301, size: signSize, font: signatureFont, color: black });
     const timestamp=dateAndTime(options.signedAt);
-    const timestampSize=fitSize(normal,timestamp,94,7.2,6);
-    page.drawText(timestamp, { x: 472, y: 301, size: timestampSize, font: normal, color: black });
+    const timestampSize=fitSize(normal,timestamp,SIGNED_PDF_FIELD_LAYOUT.date.textWidth,7.2,6);
+    page.drawText(timestamp, { x: SIGNED_PDF_FIELD_LAYOUT.date.textX, y: 301, size: timestampSize, font: normal, color: black });
   }
   return pdf.save({ useObjectStreams: false });
 }

@@ -1,10 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { renderLaptopAgreementPdf } from "@/lib/agreements/laptop-pdf";
+import { renderLaptopAgreementPdf, SIGNED_PDF_FIELD_LAYOUT } from "@/lib/agreements/laptop-pdf";
 
 describe("approved LACC laptop letter PDF",()=>{
   const template=()=>readFile(new URL("../../public/templates/lacc-laptop-letter-background.jpg",import.meta.url));
+
+  it("keeps the typed signature clear of the original Date label",()=>{
+    expect(SIGNED_PDF_FIELD_LAYOUT.signature.coverX+SIGNED_PDF_FIELD_LAYOUT.signature.coverWidth).toBeLessThan(SIGNED_PDF_FIELD_LAYOUT.dateLabelStart);
+    expect(SIGNED_PDF_FIELD_LAYOUT.signature.textX+SIGNED_PDF_FIELD_LAYOUT.signature.textWidth).toBeLessThan(SIGNED_PDF_FIELD_LAYOUT.dateLabelStart);
+    expect(SIGNED_PDF_FIELD_LAYOUT.date.coverX).toBeGreaterThan(SIGNED_PDF_FIELD_LAYOUT.dateLabelStart);
+  });
 
   it("creates a one-page flattened letter with the supplied synthetic signature",async()=>{
     const bytes=await renderLaptopAgreementPdf(await template(),{
