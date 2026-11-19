@@ -7,7 +7,7 @@ import { Pool } from "pg";
 import { readFile } from "node:fs/promises";
 import { PDFDocument } from "pdf-lib";
 import { database } from "@/lib/sql/client";
-import { createAgreementForCurrentAssignment, consumeAgreementAccessAttempt, consumeAgreementSignAttempt, getAgreementById, getAgreementByToken, getSignedAgreementPdf, isAgreementStorageReady, listAgreementEvents, listAgreementForms, revokePendingAgreement, signAgreement, updateAgreementTracking } from "@/lib/sql/agreements";
+import { createAgreementForCurrentAssignment, isPublicAgreementAccessible, consumeAgreementSignAttempt, getAgreementById, getAgreementByToken, getSignedAgreementPdf, isAgreementStorageReady, listAgreementEvents, listAgreementForms, revokePendingAgreement, signAgreement, updateAgreementTracking } from "@/lib/sql/agreements";
 
 const url=process.env.TEST_AGREEMENTS_DATABASE_URL;
 const describePg=url?describe:describe.skip;
@@ -102,11 +102,13 @@ describePg("equipment agreement SQL lifecycle",()=>{
     expect(await getAgreementByToken(created.token)).not.toBeNull();
     await revokePendingAgreement(created.id,"synthetic-admin","Synthetic Admin");
     expect(await getAgreementByToken(created.token)).toBeNull();
+    expect(await isPublicAgreementAccessible(created.token)).toBe(false);
     expect(await consumeAgreementSignAttempt(created.token)).toBe(false);
     await expect(revokePendingAgreement(created.id,"synthetic-admin","Synthetic Admin")).rejects.toThrow("Only an active pending agreement link can be revoked.");
     const expired=await create();
     await pool!.query("UPDATE inventory_agreement_forms SET expires_at=now()-interval '1 second' WHERE id=$1",[expired.id]);
     expect(await getAgreementByToken(expired.token)).toBeNull();
+    expect(await isPublicAgreementAccessible(expired.token)).toBe(false);
     expect(await consumeAgreementSignAttempt(expired.token)).toBe(false);
     const stale=await create();
     await consumeAgreementSignAttempt(stale.token);
@@ -114,10 +116,11 @@ describePg("equipment agreement SQL lifecycle",()=>{
     expect(await signAgreement(stale.token,"Synthetic Signer")).toBeNull();
   });
 
-  it("bounds public reads and signing attempts",async()=>{
+  it("allows repeated public reads without consuming the link, while bounding signing attempts",async()=>{
     const created=await create();
-    for(let i=0;i<50;i++)expect(await consumeAgreementAccessAttempt(created.token)).toBe(true);
-    expect(await consumeAgreementAccessAttempt(created.token)).toBe(false);
+    for(let i=0;i<75;i++)expect(await isPublicAgreementAccessible(created.token)).toBe(true);
+    const attempts=(await pool!.query<{access_attempts:number}>("SELECT access_attempts FROM inventory_agreement_forms WHERE id=$1",[created.id])).rows[0].access_attempts;
+    expect(attempts).toBe(0);
     for(let i=0;i<5;i++)expect(await consumeAgreementSignAttempt(created.token)).toBe(true);
     expect(await consumeAgreementSignAttempt(created.token)).toBe(false);
   });

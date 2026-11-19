@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { consumeAgreementAccessAttempt, getAgreementByToken } from "@/lib/sql/agreements";
+import { getAgreementByToken, isPublicAgreementAccessible } from "@/lib/sql/agreements";
 import { isElectronicAgreementWorkflowEnabled, isValidAgreementToken } from "@/lib/sql/agreement-state";
 
 const headers={"Cache-Control":"private, no-store, max-age=0","Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex, nofollow, noarchive"};
@@ -14,7 +14,7 @@ export async function POST(request:Request){
   try{body=await request.json();}catch{return NextResponse.json({error:"This agreement link is unavailable. Contact LACC IT for help."},{status:400,headers});}
   const token=body&&typeof body==="object"&&"token" in body&&typeof body.token==="string"?body.token:"";
   if(!isValidAgreementToken(token))return NextResponse.json({error:"This agreement link is unavailable, expired, revoked, or already completed. Contact LACC IT for help."},{status:404,headers});
-  if(!await consumeAgreementAccessAttempt(token))return NextResponse.json({error:"This agreement link is unavailable, expired, revoked, or already completed. Contact LACC IT for help."},{status:404,headers});
+  if(!await isPublicAgreementAccessible(token))return NextResponse.json({error:"This agreement link is unavailable, expired, revoked, or already completed. Contact LACC IT for help."},{status:404,headers});
   const agreement=await getAgreementByToken(token);
   if(!agreement)return NextResponse.json({error:"This agreement link is unavailable, expired, revoked, or already completed. Contact LACC IT for help."},{status:404,headers});
   if(agreement.status==="PENDING"&&!isElectronicAgreementWorkflowEnabled())return NextResponse.json({error:"This agreement link is unavailable. Contact LACC IT for help."},{status:404,headers});

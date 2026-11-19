@@ -96,9 +96,12 @@ export async function consumeAgreementSignAttempt(token: string) {
   return Boolean(result.rowCount);
 }
 
-export async function consumeAgreementAccessAttempt(token: string) {
+export async function isPublicAgreementAccessible(token: string) {
   if (!isValidAgreementToken(token)) return false;
-  const result = await database().query("UPDATE inventory_agreement_forms SET access_attempts=access_attempts+1 WHERE token_hash=$1 AND status IN ('PENDING','SIGNED','PRINTED','HANDED_OFF','COMPLETED') AND expires_at>now() AND revoked_at IS NULL AND access_attempts<50 RETURNING id", [hash(token)]);
+  const result = await database().query(
+    "SELECT id FROM inventory_agreement_forms WHERE token_hash=$1 AND status IN ('PENDING','SIGNED','PRINTED','HANDED_OFF','COMPLETED') AND expires_at>now() AND revoked_at IS NULL",
+    [hash(token)],
+  );
   return Boolean(result.rowCount);
 }
 
