@@ -9,7 +9,7 @@ import { clearAgreementSessionToken, AGREEMENT_SESSION_HISTORY_KEY, readAgreemen
 import { LAPTOP_TEMPLATE_URL, renderLaptopAgreementPdf } from "@/lib/agreements/laptop-pdf";
 
 type Agreement = { data: Record<string, unknown>; status: string; signedAt: string | null; expiresAt: string; termsVersion: string };
-type PdfResult = { key: string; url: string; error: string };
+type PdfResult = { key: string; url: string; data: Uint8Array | null; error: string };
 
 const unavailable = "This agreement link is unavailable, expired, revoked, or already completed. Contact LACC IT for help.";
 
@@ -112,12 +112,13 @@ function AgreementLoader({ token }: { token: string }) {
 
 function AgreementReview({ token, agreement, onSigned }: { token: string; agreement: Agreement; onSigned: (name: string, signedAt: string) => void }) {
   const [signerName, setSignerName] = useState(typeof agreement.data.signer_name === "string" ? agreement.data.signer_name : "");
-  const [pdfResult, setPdfResult] = useState<PdfResult>({ key: "", url: "", error: "" });
+  const [pdfResult, setPdfResult] = useState<PdfResult>({ key: "", url: "", data: null, error: "" });
   const [retry, setRetry] = useState(0);
   const sequence = useRef(0);
   const previewKey = JSON.stringify([agreement.status, agreement.signedAt, agreement.termsVersion, agreement.data, signerName.trim(), retry]);
   const previewIsCurrent = pdfResult.key === previewKey;
   const pdfUrl = previewIsCurrent ? pdfResult.url : "";
+  const pdfData = previewIsCurrent ? pdfResult.data : null;
   const pdfError = previewIsCurrent ? pdfResult.error : "";
   const pending = agreement.status === "PENDING";
 
@@ -129,7 +130,7 @@ function AgreementReview({ token, agreement, onSigned }: { token: string; agreem
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          let blob: Blob;
+          let data: Uint8Array;
           if (agreement.status === "COMPLETED") {
             const response = await fetch("/api/agreement/document", {
               method: "POST",
@@ -139,20 +140,20 @@ function AgreementReview({ token, agreement, onSigned }: { token: string; agreem
               credentials: "same-origin",
             });
             if (!response.ok) throw new Error("The signed PDF could not be loaded. Contact LACC IT.");
-            blob = await response.blob();
+            data = new Uint8Array(await response.arrayBuffer());
           } else {
             const response = await fetch(LAPTOP_TEMPLATE_URL, { cache: "force-cache", credentials: "same-origin" });
             if (!response.ok) throw new Error("The approved agreement template could not be loaded.");
             const background = new Uint8Array(await response.arrayBuffer());
-            const bytes = await renderLaptopAgreementPdf(background, agreement.data, { signerName: signerName.trim() || undefined });
-            blob = new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: "application/pdf" });
+            data = await renderLaptopAgreementPdf(background, agreement.data, { signerName: signerName.trim() || undefined });
           }
           if (disposed || id !== sequence.current) return;
+          const blob = new Blob([new Uint8Array(data).buffer as ArrayBuffer], { type: "application/pdf" });
           objectUrl = URL.createObjectURL(blob);
-          setPdfResult({ key: previewKey, url: objectUrl, error: "" });
+          setPdfResult({ key: previewKey, url: objectUrl, data, error: "" });
         } catch (error) {
           if (disposed || id !== sequence.current) return;
-          setPdfResult({ key: previewKey, url: "", error: error instanceof Error ? error.message : "The agreement preview could not be prepared." });
+          setPdfResult({ key: previewKey, url: "", data: null, error: error instanceof Error ? error.message : "The agreement preview could not be prepared." });
         }
       })();
     }, agreement.status === "COMPLETED" ? 0 : 250);
@@ -178,7 +179,7 @@ function AgreementReview({ token, agreement, onSigned }: { token: string; agreem
       <section className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 overflow-hidden rounded-xl border bg-white shadow-sm">
           <div className="no-print flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2"><p className="text-sm font-medium">Agreement preview · {agreement.termsVersion}</p>{pdfUrl && <div className="flex flex-wrap gap-2"><a className="inline-flex min-h-10 items-center rounded-md border px-3 text-sm font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={pdfUrl} target="_blank" rel="noreferrer">Open PDF in new tab</a><a className="inline-flex min-h-10 items-center rounded-md border px-3 text-sm font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={pdfUrl} download={fileName}>Download PDF</a></div>}</div>
-          {pdfError ? <div className="p-5 text-sm text-destructive" role="alert">{pdfError}</div> : pdfUrl ? <AgreementPdfViewer key={pdfUrl} url={pdfUrl} title="LACC laptop agreement PDF preview"/> : <div className="grid h-[60svh] min-h-80 place-items-center p-5 text-sm text-muted-foreground" role="status">Preparing the agreement PDF preview…</div>}
+          {pdfError ? <div className="p-5 text-sm text-destructive" role="alert">{pdfError}</div> : pdfUrl && pdfData ? <AgreementPdfViewer key={pdfUrl} data={pdfData} title="LACC laptop agreement PDF preview"/> : <div className="grid h-[60svh] min-h-80 place-items-center p-5 text-sm text-muted-foreground" role="status">Preparing the agreement PDF preview…</div>}
         </div>
         <aside className="no-print self-start rounded-xl border bg-card p-4 shadow-sm sm:p-5">
           <h2 className="text-lg font-semibold">{pending ? "Review and sign" : "Signing complete"}</h2>

@@ -76,7 +76,9 @@ test("public agreement survives refresh and history navigation, signs, and rende
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Laptop agreement" })).toBeVisible();
 
+  const unsignedPreview = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL());
   await page.getByLabel("Type your full legal name").fill("Alex Example");
+  await expect.poll(() => canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL())).not.toBe(unsignedPreview);
   await expect(page.getByRole("button", { name: "Review and sign agreement" })).toBeEnabled();
   await page.getByLabel(/I agree that typing my full name/).check();
   await page.getByRole("button", { name: "Review and sign agreement" }).click();

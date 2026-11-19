@@ -5,20 +5,20 @@ import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 
 type AgreementPdfViewerProps = {
-  url: string;
+  data: Uint8Array;
   title: string;
 };
 
-export function AgreementPdfViewer({ url, title }: AgreementPdfViewerProps) {
+export function AgreementPdfViewer({ data, title }: AgreementPdfViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [documentState, setDocumentState] = useState<{ url: string; document: PDFDocumentProxy | null; error: string }>({ url: "", document: null, error: "" });
+  const [documentState, setDocumentState] = useState<{ data: Uint8Array | null; document: PDFDocumentProxy | null; error: string }>({ data: null, document: null, error: "" });
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [renderState, setRenderState] = useState<{ key: string; error: string }>({ key: "", error: "" });
-  const document = documentState.url === url ? documentState.document : null;
-  const loadingError = documentState.url === url ? documentState.error : "";
-  const renderKey = `${url}:${width}:${zoom}`;
+  const document = documentState.data === data ? documentState.document : null;
+  const loadingError = documentState.data === data ? documentState.error : "";
+  const renderKey = `${data.byteLength}:${width}:${zoom}`;
   const renderError = renderState.key === renderKey ? renderState.error : "";
   const rendered = renderState.key === renderKey && !renderState.error;
 
@@ -30,15 +30,17 @@ export function AgreementPdfViewer({ url, title }: AgreementPdfViewerProps) {
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        task = pdfjs.getDocument({ url, isEvalSupported: false });
+        // PDF preview data is already in memory. Passing bytes avoids a blob: fetch,
+        // which Safari correctly blocks under the app's strict connect-src policy.
+        task = pdfjs.getDocument({ data: new Uint8Array(data), isEvalSupported: false });
         const loaded = await task.promise;
         if (cancelled) {
           await loaded.destroy();
           return;
         }
-        setDocumentState({ url, document: loaded, error: "" });
+        setDocumentState({ data, document: loaded, error: "" });
       } catch {
-        if (!cancelled) setDocumentState({ url, document: null, error: "The PDF preview could not be rendered in this browser. Use Open PDF or Download PDF to review the approved document." });
+        if (!cancelled) setDocumentState({ data, document: null, error: "The PDF preview could not be rendered in this browser. Use Open PDF or Download PDF to review the approved document." });
       }
     })();
 
@@ -46,7 +48,7 @@ export function AgreementPdfViewer({ url, title }: AgreementPdfViewerProps) {
       cancelled = true;
       if (task) void task.destroy();
     };
-  }, [url]);
+  }, [data]);
 
   useEffect(() => {
     const container = containerRef.current;
